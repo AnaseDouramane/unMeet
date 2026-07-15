@@ -1,0 +1,12 @@
+beautifulsoup4>=4.12
+hdbscan>=0.8.40
+numpy>=2.0
+pandas>=2.2
+pgvector>=0.3
+psycopg[binary]>=3.2
+python-dotenv>=1.0
+requests>=2.32
+scikit-learn>=1.5
+sentence-transformers>=3.0
+sqlalchemy>=2.0
+streamlit>=1.36

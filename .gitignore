@@ -1,5 +1,33 @@
-node_modules/
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Environment
 .env
-dist/
-build/
+
+# IDE
 .vscode/
+.idea/
+
+# Build and distribution
+build/
+dist/
+*.egg-info/
+
+# Local project artifacts
+.dist/*
+!.dist/.gitkeep
+
+# Data and models
+data/
+models/
+*.db
+
+# OS
+.DS_Store
+Thumbs.db

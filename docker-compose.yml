@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: unmeet-postgres
+    environment:
+      POSTGRES_DB: unmeet
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - unmeet_pgdata:/var/lib/postgresql/data
+      - ./scripts/enable_pgvector.sql:/docker-entrypoint-initdb.d/01-enable-pgvector.sql
+
+volumes:
+  unmeet_pgdata:
