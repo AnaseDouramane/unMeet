@@ -1,223 +1,78 @@
-# unMeet — Architecture
+# Architecture
 
-## Obiettivo
+## Contesto
 
-L'architettura deve supportare una pipeline modulare, ripetibile, ispezionabile e facilmente estendibile.
+Il repository contiene una pipeline ancora piccola ma già separata per responsabilità. Il run eseguibile oggi parte da `main.py` e attraversa solo ingestion da Hacker News e preprocessing.
 
-## Vista generale
+## Pipeline Attuale
 
 ```text
-Hacker News API ─┐
-Stack Exchange ──┼──> Ingestion Layer
-Reddit API ──────┘
-                         |
-                         v
-                 Normalization Layer
-                         |
-                         v
-                    Cleaning Layer
-                         |
-                         v
-                 Deduplication Layer
-                         |
-                         v
-              Local Embedding Service
-                         |
-                         v
-               PostgreSQL + pgvector
-                         |
-                         v
-                   HDBSCAN Engine
-                         |
-                         v
-             Cluster Canonicalization
-                         |
-                         v
-             Market Coverage Connectors
-                GitHub / Product Hunt
-                         |
-                         v
-              Coverage Classification
-                         |
-                         v
-                 Streamlit Dashboard
+main.py
+  -> app.config.settings
+  -> app.services.pipeline.Pipeline
+  -> app.ingestion.hackernews.HackerNewsConnector
+  -> app.ingestion.schemas.SourceItem
+  -> app.services.preprocessing.PreprocessingService
+  -> app.preprocessing.cleaner.clean_text
+  -> app.preprocessing.normalizer.build_document_text
+  -> app.preprocessing.deduplicator.text_hash
+  -> app.preprocessing.schemas.PreparedDocument
 ```
 
-## Moduli
+## Layer E Responsabilità
 
-### `app/ingestion`
+### Entry point
 
-Responsabilità:
+`main.py` crea la pipeline e avvia un run sincrono.
 
-- connessione alle API;
-- paginazione;
-- rate limiting;
-- retry;
-- gestione errori;
-- mapping verso lo schema comune.
+### Configurazione
 
-Connettori:
+`app/config.py` legge le variabili d'ambiente e fornisce i parametri di runtime, inclusi URL del database e credenziali opzionali per connettori futuri.
 
-- `hackernews.py`;
-- `stackexchange.py`;
-- `reddit.py`.
+### Ingestion
 
-### `app/preprocessing`
+`app/ingestion` contiene il contratto comune `SourceConnector`, lo schema `SourceItem` e il connettore attivo `HackerNewsConnector`.
 
-Responsabilità:
+Il connettore:
 
-- pulizia HTML;
-- normalizzazione;
-- costruzione del testo finale;
-- filtraggio;
-- deduplicazione.
+- legge la lista degli story id;
+- scarica i singoli item;
+- filtra gli elementi che non sono di tipo `story`;
+- costruisce un `SourceItem` con payload originale.
 
-### `app/embeddings`
+### Preprocessing
 
-Responsabilità:
+`app/preprocessing` contiene tre passi separati:
 
-- caricamento del modello locale;
-- generazione batch;
-- normalizzazione vettori;
-- versionamento del modello;
-- salvataggio in pgvector.
+- `cleaner.py` rimuove HTML, unescapa entità e compatta gli spazi;
+- `normalizer.py` compone il testo finale del documento;
+- `deduplicator.py` calcola un hash SHA-256 normalizzato su minuscole e spazi.
 
-### `app/clustering`
+### Servizio Di Orchestrazione
 
-Responsabilità:
+`app/services/preprocessing.py` unisce i passi precedenti e produce `PreparedDocument` senza mutare il `SourceItem` di input.
 
-- caricamento embedding;
-- eventuale riduzione dimensionale;
-- esecuzione HDBSCAN;
-- gestione rumore;
-- salvataggio label e confidence;
-- statistiche dei cluster.
-
-### `app/market`
-
-Responsabilità:
-
-- trasformazione dei cluster in query;
-- ricerca su GitHub e/o Product Hunt;
-- salvataggio risultati;
-- matching semantico;
-- classificazione copertura.
-
-### `app/database`
-
-Responsabilità:
-
-- modelli SQLAlchemy;
-- sessioni;
-- migrazioni;
-- relazioni;
-- integrazione pgvector.
-
-### `app/dashboard`
-
-Responsabilità:
-
-- visualizzazione cluster;
-- filtri;
-- trend;
-- fonti originali;
-- risultati di mercato;
-- stato di copertura.
-
-### `app/services`
-
-Responsabilità:
-
-- orchestrazione delle fasi;
-- avvio dei run;
-- gestione dipendenze;
-- logging;
-- configurazione.
-
-## Stack
-
-### Linguaggio
-
-Python 3.11 o superiore.
+`app/services/pipeline.py` coordina l'esecuzione corrente e restituisce la lista dei documenti preparati.
 
 ### Database
 
-- PostgreSQL;
-- pgvector;
-- SQLAlchemy;
-- Alembic.
+`app/database` definisce base declarative, sessione SQLAlchemy e il modello `SourceItemModel`.
 
-### Elaborazione dati
+Nel repository il database è già previsto come PostgreSQL, con supporto `pgvector` abilitato dallo script di bootstrap, ma la pipeline eseguita oggi non salva ancora i documenti.
 
-- pandas;
-- BeautifulSoup;
-- scikit-learn;
-- sentence-transformers;
-- HDBSCAN;
-- UMAP opzionale.
+### Altri Layer Presenti
 
-### Dashboard
+`app/embeddings`, `app/clustering`, `app/market` e `app/dashboard` esistono come aree del progetto, ma non sono ancora collegate al flusso eseguito da `main.py`.
 
-Streamlit.
+## Flusso Dei Dati
 
-### Ambiente
+1. Hacker News restituisce dati grezzi.
+2. `HackerNewsConnector` li converte nello schema comune `SourceItem`.
+3. `PreprocessingService` pulisce titolo e corpo.
+4. `build_document_text` costruisce il testo da usare downstream.
+5. `text_hash` genera `dedup_hash`.
+6. La pipeline restituisce `PreparedDocument` pronti per eventuali stadi successivi.
 
-Docker Compose per PostgreSQL e pgvector.
+## Stato Del Sistema
 
-## Schema dati comune
-
-```json
-{
-  "external_id": "string",
-  "source": "string",
-  "title": "string",
-  "body": "string",
-  "url": "string",
-  "author": "string|null",
-  "published_at": "datetime",
-  "engagement_score": 0,
-  "raw_payload": {},
-  "ingested_at": "datetime"
-}
-```
-
-## Principi architetturali
-
-- separazione delle responsabilità;
-- idempotenza;
-- configurazione esterna;
-- persistenza dei risultati intermedi;
-- versionamento dei modelli;
-- tracciabilità;
-- connector sostituibili;
-- fallimento isolato delle fonti;
-- pipeline rieseguibile per singola fase.
-
-## Decisioni tecniche
-
-### PostgreSQL + pgvector
-
-Consente di mantenere dati relazionali e vettoriali nello stesso sistema, riducendo la complessità infrastrutturale dell'MVP.
-
-### sentence-transformers
-
-Permette embedding locali, controllabili e senza dipendenza da API commerciali.
-
-### HDBSCAN
-
-È adatto quando il numero di problemi distinti non è noto e una parte dei documenti può essere rumore.
-
-### Streamlit
-
-È sufficiente per una dashboard locale e riduce il tempo dedicato al frontend.
-
-## Decisioni ancora aperte
-
-- modello embedding iniziale;
-- uso di UMAP;
-- parametri HDBSCAN;
-- soglia minima dei cluster;
-- strategia di canonicalizzazione;
-- fonte primaria di market coverage;
-- regole di classificazione;
-- finestra temporale dei dati.
+Il progetto è strutturato per crescere verso persistenza, embeddings, clustering e market coverage, ma questi passi non fanno ancora parte del run principale.
