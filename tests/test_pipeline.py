@@ -25,13 +25,24 @@ class FakeHackerNewsConnector:
             )
 
 
+class FakeRepository:
+    def __init__(self) -> None:
+        self.saved: list[tuple[SourceItem, object]] = []
+
+    def save(self, source_item, prepared_document):
+        self.saved.append((source_item, prepared_document))
+        return prepared_document
+
+
 def test_pipeline_returns_prepared_documents(monkeypatch) -> None:
     monkeypatch.setattr("app.services.pipeline.HackerNewsConnector", FakeHackerNewsConnector)
 
-    pipeline = Pipeline(settings=type("SettingsStub", (), {"environment": "test"})())
+    repository = FakeRepository()
+    pipeline = Pipeline(settings=type("SettingsStub", (), {"environment": "test"})(), repository=repository)
     prepared_documents = pipeline.run()
 
     assert len(prepared_documents) == 10
+    assert len(repository.saved) == 10
     assert [document.source_item.external_id for document in prepared_documents] == [
         str(index) for index in range(10)
     ]
@@ -40,3 +51,5 @@ def test_pipeline_returns_prepared_documents(monkeypatch) -> None:
     assert prepared_documents[0].document_text == "Title 0\n\nBody 0"
     assert prepared_documents[0].source_item.title == "<h1>Title 0</h1>"
     assert prepared_documents[0].source_item.body == "<p>Body 0</p>"
+    assert repository.saved[0][0].external_id == "0"
+    assert repository.saved[0][1].dedup_hash == prepared_documents[0].dedup_hash
