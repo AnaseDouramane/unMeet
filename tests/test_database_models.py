@@ -1,4 +1,4 @@
-from sqlalchemy import create_mock_engine, inspect
+from sqlalchemy import create_mock_engine
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.schema import UniqueConstraint
 
@@ -11,6 +11,8 @@ def test_source_items_model_defines_expected_postgresql_schema() -> None:
 
     assert isinstance(table.c.raw_payload.type, JSONB)
     assert table.c.processed_at.nullable is True
+    assert table.c.embedding.nullable is True
+    assert table.c.embedding.type.dim == 384
     assert any(
         isinstance(constraint, UniqueConstraint)
         and constraint.name == "uq_source_items_source_external_id"
@@ -37,6 +39,7 @@ def test_source_items_create_all_emits_postgresql_ddl() -> None:
 
     assert "CREATE TABLE source_items" in ddl
     assert "raw_payload JSONB" in ddl
+    assert "embedding VECTOR(384)" in ddl
     assert "processed_at TIMESTAMP WITH TIME ZONE" in ddl
     assert "CONSTRAINT uq_source_items_source_external_id UNIQUE (source, external_id)" in ddl
     assert "CREATE INDEX ix_source_items_dedup_hash ON source_items (dedup_hash)" in ddl

@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+import pytest
+
 from app.database.models import SourceItemModel
 from app.database.repository import SourceItemRepository
 from app.ingestion.schemas import SourceItem
@@ -72,13 +74,18 @@ def _build_prepared_document(source_item: SourceItem, dedup_hash: str = "abc123"
     )
 
 
+def _build_embedding(value: float = 0.1) -> list[float]:
+    return [value] * 384
+
+
 def test_repository_saves_source_item_and_prepared_document_into_one_record() -> None:
     session = FakeSession([None])
     repository = SourceItemRepository(session_factory=FakeSessionFactory([session]))
     source_item = _build_source_item()
     prepared_document = _build_prepared_document(source_item)
+    embedding = _build_embedding()
 
-    saved = repository.save(source_item, prepared_document)
+    saved = repository.save(source_item, prepared_document, embedding=embedding)
 
     assert saved.id == 1
     assert session.committed == 1
@@ -92,6 +99,7 @@ def test_repository_saves_source_item_and_prepared_document_into_one_record() ->
     assert saved.body == source_item.body
     assert saved.clean_body == prepared_document.body
     assert saved.document_text == prepared_document.document_text
+    assert saved.embedding == embedding
     assert saved.dedup_hash == prepared_document.dedup_hash
     assert saved.url == source_item.url
     assert saved.author == source_item.author
@@ -107,8 +115,9 @@ def test_repository_updates_existing_record_by_source_and_external_id() -> None:
     repository = SourceItemRepository(session_factory=FakeSessionFactory([session]))
     source_item = _build_source_item()
     prepared_document = _build_prepared_document(source_item)
+    embedding = _build_embedding(0.2)
 
-    saved = repository.save(source_item, prepared_document)
+    saved = repository.save(source_item, prepared_document, embedding=embedding)
 
     assert saved is existing
     assert session.committed == 1
@@ -117,6 +126,21 @@ def test_repository_updates_existing_record_by_source_and_external_id() -> None:
     assert existing.clean_title == prepared_document.title
     assert existing.clean_body == prepared_document.body
     assert existing.dedup_hash == prepared_document.dedup_hash
+    assert existing.embedding == embedding
+
+
+@pytest.mark.parametrize("invalid_embedding", [_build_embedding()[:383], _build_embedding() + [0.1]])
+def test_repository_rejects_embeddings_with_invalid_length(invalid_embedding: list[float]) -> None:
+    session = FakeSession([None])
+    repository = SourceItemRepository(session_factory=FakeSessionFactory([session]))
+    source_item = _build_source_item()
+    prepared_document = _build_prepared_document(source_item)
+
+    with pytest.raises(ValueError, match="exactly 384 values"):
+        repository.save(source_item, prepared_document, embedding=invalid_embedding)
+
+    assert session.rolled_back == 1
+    assert session.closed == 1
 
 
 def test_repository_keeps_distinct_records_for_same_dedup_hash() -> None:

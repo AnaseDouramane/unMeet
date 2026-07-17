@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -59,9 +59,15 @@ class SourceItemRepository:
     def exists_by_dedup_hash(self, dedup_hash: str) -> bool:
         return self.get_by_dedup_hash(dedup_hash) is not None
 
-    def save(self, source_item: SourceItem, prepared_document: PreparedDocument) -> SourceItemModel:
+    def save(
+        self,
+        source_item: SourceItem,
+        prepared_document: PreparedDocument,
+        embedding: Sequence[float] | None = None,
+    ) -> SourceItemModel:
         session = self._open_session()
         try:
+            normalized_embedding = self._normalize_embedding(embedding)
             existing = self._get_by_source_and_external_id(
                 session,
                 source_item.source,
@@ -70,6 +76,8 @@ class SourceItemRepository:
             if existing is not None:
                 self._apply_source_item(existing, source_item)
                 self._apply_prepared_document(existing, prepared_document)
+                if normalized_embedding is not None:
+                    existing.embedding = normalized_embedding
                 existing.processed_at = datetime.now(timezone.utc)
                 session.commit()
                 session.refresh(existing)
@@ -78,6 +86,7 @@ class SourceItemRepository:
             model = SourceItemModel()
             self._apply_source_item(model, source_item)
             self._apply_prepared_document(model, prepared_document)
+            model.embedding = normalized_embedding
             model.processed_at = datetime.now(timezone.utc)
             session.add(model)
             session.commit()
@@ -109,3 +118,15 @@ class SourceItemRepository:
         model.clean_body = prepared_document.body
         model.document_text = prepared_document.document_text
         model.dedup_hash = prepared_document.dedup_hash
+
+    @staticmethod
+    def _normalize_embedding(embedding: Sequence[float] | None) -> list[float] | None:
+        if embedding is None:
+            return None
+        if isinstance(embedding, (str, bytes)):
+            raise TypeError("embedding must be a sequence of 384 floats")
+
+        normalized = [float(value) for value in embedding]
+        if len(normalized) != 384:
+            raise ValueError("embedding must contain exactly 384 values")
+        return normalized
