@@ -53,6 +53,22 @@ class SourceItemRepository:
         finally:
             self._close_session(session)
 
+    def find_similar(self, embedding: Sequence[float], limit: int = 10) -> list[SourceItemModel]:
+        normalized_embedding = self._normalize_embedding(embedding)
+        normalized_limit = self._normalize_limit(limit)
+
+        session = self._open_session()
+        try:
+            statement = (
+                select(SourceItemModel)
+                .where(SourceItemModel.embedding.is_not(None))
+                .order_by(SourceItemModel.embedding.cosine_distance(normalized_embedding))
+                .limit(normalized_limit)
+            )
+            return list(session.scalars(statement).all())
+        finally:
+            self._close_session(session)
+
     def exists_by_source_and_external_id(self, source: str, external_id: str) -> bool:
         return self.get_by_source_and_external_id(source, external_id) is not None
 
@@ -130,3 +146,11 @@ class SourceItemRepository:
         if len(normalized) != 384:
             raise ValueError("embedding must contain exactly 384 values")
         return normalized
+
+    @staticmethod
+    def _normalize_limit(limit: int) -> int:
+        if not isinstance(limit, int):
+            raise TypeError("limit must be an integer")
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        return limit

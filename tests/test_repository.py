@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from app.database.models import SourceItemModel
 from app.database.repository import SourceItemRepository
@@ -8,9 +9,19 @@ from app.ingestion.schemas import SourceItem
 from app.preprocessing.schemas import PreparedDocument
 
 
+class FakeScalarResult:
+    def __init__(self, rows: list[object]) -> None:
+        self.rows = rows
+
+    def all(self):
+        return self.rows
+
+
 class FakeSession:
-    def __init__(self, scalar_results: list[object | None]) -> None:
+    def __init__(self, scalar_results: list[object | None], scalars_results: list[list[object]] | None = None) -> None:
         self.scalar_results = scalar_results
+        self.scalars_results = scalars_results or []
+        self.scalars_statements = []
         self.added = []
         self.committed = 0
         self.rolled_back = 0
@@ -21,6 +32,12 @@ class FakeSession:
         if not self.scalar_results:
             raise AssertionError(f"Unexpected scalar call: {statement}")
         return self.scalar_results.pop(0)
+
+    def scalars(self, statement):
+        self.scalars_statements.append(statement)
+        if not self.scalars_results:
+            raise AssertionError(f"Unexpected scalars call: {statement}")
+        return FakeScalarResult(self.scalars_results.pop(0))
 
     def add(self, model):
         self.added.append(model)
@@ -48,6 +65,11 @@ class FakeSessionFactory:
         if not self.sessions:
             raise AssertionError("Unexpected session request")
         return self.sessions.pop(0)
+
+
+class FailingSessionFactory:
+    def __call__(self):
+        raise AssertionError("Session should not be opened for invalid input")
 
 
 def _build_source_item(external_id: str = "123") -> SourceItem:
@@ -141,6 +163,51 @@ def test_repository_rejects_embeddings_with_invalid_length(invalid_embedding: li
 
     assert session.rolled_back == 1
     assert session.closed == 1
+
+
+@pytest.mark.parametrize("invalid_limit", [0, -1])
+def test_find_similar_rejects_non_positive_limit(invalid_limit: int) -> None:
+    repository = SourceItemRepository(session_factory=FailingSessionFactory())
+
+    with pytest.raises(ValueError, match="limit must be positive"):
+        repository.find_similar(_build_embedding(), limit=invalid_limit)
+
+
+@pytest.mark.parametrize("invalid_embedding", [_build_embedding()[:383], _build_embedding() + [0.1]])
+def test_find_similar_rejects_invalid_embedding_length(invalid_embedding: list[float]) -> None:
+    repository = SourceItemRepository(session_factory=FailingSessionFactory())
+
+    with pytest.raises(ValueError, match="exactly 384 values"):
+        repository.find_similar(invalid_embedding)
+
+
+def test_find_similar_orders_by_cosine_distance_and_excludes_null_embeddings() -> None:
+    rows = [SourceItemModel(), SourceItemModel()]
+    session = FakeSession([], scalars_results=[rows])
+    repository = SourceItemRepository(session_factory=FakeSessionFactory([session]))
+    embedding = _build_embedding(0.5)
+
+    found = repository.find_similar(embedding, limit=5)
+
+    assert found == rows
+    assert session.closed == 1
+    assert len(session.scalars_statements) == 1
+    statement = session.scalars_statements[0]
+    compiled_sql = str(statement.compile(dialect=postgresql.dialect()))
+    assert "source_items.embedding IS NOT NULL" in compiled_sql
+    assert "source_items.embedding <=>" in compiled_sql
+    assert statement._limit_clause.value == 5
+
+
+def test_find_similar_returns_source_item_models_in_order() -> None:
+    first = SourceItemModel()
+    second = SourceItemModel()
+    session = FakeSession([], scalars_results=[[second, first]])
+    repository = SourceItemRepository(session_factory=FakeSessionFactory([session]))
+
+    found = repository.find_similar(_build_embedding())
+
+    assert found == [second, first]
 
 
 def test_repository_keeps_distinct_records_for_same_dedup_hash() -> None:
