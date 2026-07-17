@@ -25,26 +25,47 @@ class FakeHackerNewsConnector:
             )
 
 
+class FakeEmbeddingService:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def encode(self, document_text: str) -> list[float]:
+        self.calls.append(document_text)
+        embedding_value = float(len(self.calls))
+        return [embedding_value] * 384
+
+
 class FakeRepository:
     def __init__(self) -> None:
-        self.saved: list[tuple[SourceItem, object]] = []
+        self.saved: list[tuple[SourceItem, object, list[float] | None]] = []
 
-    def save(self, source_item, prepared_document):
-        self.saved.append((source_item, prepared_document))
+    def save(self, source_item, prepared_document, embedding=None):
+        self.saved.append((source_item, prepared_document, embedding))
         return prepared_document
 
 
-def test_pipeline_returns_prepared_documents(monkeypatch) -> None:
+def test_pipeline_returns_prepared_documents_and_passes_embeddings(monkeypatch) -> None:
     monkeypatch.setattr("app.services.pipeline.HackerNewsConnector", FakeHackerNewsConnector)
 
     repository = FakeRepository()
-    pipeline = Pipeline(settings=type("SettingsStub", (), {"environment": "test"})(), repository=repository)
+    embedding_service = FakeEmbeddingService()
+    pipeline = Pipeline(
+        settings=type("SettingsStub", (), {"environment": "test"})(),
+        repository=repository,
+        embedding_service=embedding_service,
+    )
     prepared_documents = pipeline.run()
 
     assert len(prepared_documents) == 10
     assert len(repository.saved) == 10
+    assert embedding_service.calls == [document.document_text for document in prepared_documents]
     assert [document.source_item.external_id for document in prepared_documents] == [
         str(index) for index in range(10)
+    ]
+    assert [saved[0].external_id for saved in repository.saved] == [str(index) for index in range(10)]
+    assert [saved[1].document_text for saved in repository.saved] == embedding_service.calls
+    assert [saved[2] for saved in repository.saved] == [
+        [float(index + 1)] * 384 for index in range(10)
     ]
     assert prepared_documents[0].title == "Title 0"
     assert prepared_documents[0].body == "Body 0"
