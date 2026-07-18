@@ -69,6 +69,14 @@ class SourceItemRepository:
         finally:
             self._close_session(session)
 
+    def find_all_with_embeddings(self) -> list[SourceItemModel]:
+        session = self._open_session()
+        try:
+            statement = select(SourceItemModel).where(SourceItemModel.embedding.is_not(None))
+            return list(session.scalars(statement).all())
+        finally:
+            self._close_session(session)
+
     def exists_by_source_and_external_id(self, source: str, external_id: str) -> bool:
         return self.get_by_source_and_external_id(source, external_id) is not None
 
