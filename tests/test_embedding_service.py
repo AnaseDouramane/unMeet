@@ -17,11 +17,11 @@ class FakeSentenceTransformer:
     def encode(self, texts: list[str], normalize_embeddings: bool = False) -> np.ndarray:
         self.calls.append((list(texts), normalize_embeddings))
         if len(texts) == 1:
-            return np.array([1.0, 2.0, 3.0])
+            return np.full(384, 1.0)
         return np.array(
             [
-                [4.0, 5.0, 6.0],
-                [7.0, 8.0, 9.0],
+                np.full(384, 4.0),
+                np.full(384, 7.0),
             ]
         )
 
@@ -44,6 +44,16 @@ class MismatchedSentenceTransformer:
         return np.array([1.0, 2.0, 3.0])
 
 
+class InvalidEmbeddingSentenceTransformer:
+    output: object
+
+    def __init__(self, model_name: str) -> None:
+        self.model_name = model_name
+
+    def encode(self, texts: list[str], normalize_embeddings: bool = False) -> object:
+        return self.output
+
+
 @pytest.mark.parametrize("batch_input", ["abc", b"abc"])
 def test_embedding_service_rejects_string_and_bytes_batch_input(
     monkeypatch: pytest.MonkeyPatch,
@@ -57,7 +67,9 @@ def test_embedding_service_rejects_string_and_bytes_batch_input(
         service.encode_batch(batch_input)  # type: ignore[arg-type]
 
 
-def test_embedding_service_loads_model_once_and_supports_single_and_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_embedding_service_loads_model_once_and_supports_single_and_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     FakeSentenceTransformer.instances = 0
     monkeypatch.setattr("sentence_transformers.SentenceTransformer", FakeSentenceTransformer)
 
@@ -73,12 +85,14 @@ def test_embedding_service_loads_model_once_and_supports_single_and_batch(monkey
         (["First document"], True),
         (["Second document", "Third document"], True),
     ]
-    assert single_embedding == [1.0, 2.0, 3.0]
-    assert batch_embeddings == [[4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]
+    assert single_embedding == [1.0] * 384
+    assert batch_embeddings == [[4.0] * 384, [7.0] * 384]
 
 
 @pytest.mark.parametrize("document_text", ["", "   "])
-def test_embedding_service_rejects_empty_text(monkeypatch: pytest.MonkeyPatch, document_text: str) -> None:
+def test_embedding_service_rejects_empty_text(
+    monkeypatch: pytest.MonkeyPatch, document_text: str
+) -> None:
     monkeypatch.setattr("sentence_transformers.SentenceTransformer", FakeSentenceTransformer)
 
     service = EmbeddingService(model_name="mock-model")
@@ -96,7 +110,9 @@ def test_embedding_service_rejects_empty_batch(monkeypatch: pytest.MonkeyPatch) 
         service.encode_batch([])
 
 
-@pytest.mark.parametrize("service_method, arguments", [("encode", ("Hello",)), ("encode_batch", (["Hello"],))])
+@pytest.mark.parametrize(
+    "service_method, arguments", [("encode", ("Hello",)), ("encode_batch", (["Hello"],))]
+)
 def test_embedding_service_rejects_empty_output(
     monkeypatch: pytest.MonkeyPatch,
     service_method: str,
@@ -117,3 +133,50 @@ def test_embedding_service_rejects_mismatched_batch_output(monkeypatch: pytest.M
 
     with pytest.raises(ValueError, match="shape does not match the input batch size"):
         service.encode_batch(["First document", "Second document"])
+
+
+@pytest.mark.parametrize(
+    ("output", "message"),
+    [
+        (np.full(383, 1.0), "exactly 384 values"),
+        (np.full(384, np.nan), "must be finite"),
+        (np.full(384, np.inf), "must be finite"),
+        (np.full(384, "invalid"), "must be numeric"),
+    ],
+)
+def test_embedding_service_rejects_invalid_single_embedding_output(
+    monkeypatch: pytest.MonkeyPatch,
+    output: object,
+    message: str,
+) -> None:
+    InvalidEmbeddingSentenceTransformer.output = output
+    monkeypatch.setattr(
+        "sentence_transformers.SentenceTransformer", InvalidEmbeddingSentenceTransformer
+    )
+
+    with pytest.raises(ValueError, match=message):
+        EmbeddingService(model_name="mock-model").encode("Hello")
+
+
+@pytest.mark.parametrize(
+    ("output", "message"),
+    [
+        (np.full((2, 383), 1.0), "exactly 384 values"),
+        (np.array([np.full(384, 1.0), np.full(384, np.nan)]), "must be finite"),
+        (np.full((2, 384), "invalid"), "must be numeric"),
+    ],
+)
+def test_embedding_service_rejects_invalid_embedding_in_batch_output(
+    monkeypatch: pytest.MonkeyPatch,
+    output: object,
+    message: str,
+) -> None:
+    InvalidEmbeddingSentenceTransformer.output = output
+    monkeypatch.setattr(
+        "sentence_transformers.SentenceTransformer", InvalidEmbeddingSentenceTransformer
+    )
+
+    with pytest.raises(ValueError, match=message):
+        EmbeddingService(model_name="mock-model").encode_batch(
+            ["First document", "Second document"]
+        )

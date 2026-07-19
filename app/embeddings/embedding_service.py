@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from numbers import Real
 
 import numpy as np
 
@@ -25,7 +26,9 @@ class EmbeddingService:
 
     def encode_batch(self, document_texts: Sequence[str]) -> list[list[float]]:
         if isinstance(document_texts, (str, bytes)):
-            raise ValueError("document_texts must be a sequence of texts, not a single string or bytes")
+            raise ValueError(
+                "document_texts must be a sequence of texts, not a single string or bytes"
+            )
 
         texts = list(document_texts)
         self._validate_texts(texts)
@@ -47,7 +50,10 @@ class EmbeddingService:
 
     @staticmethod
     def _coerce_embeddings(embeddings: object, expected_count: int) -> list[list[float]]:
-        array = np.asarray(embeddings, dtype=float)
+        try:
+            array = np.asarray(embeddings)
+        except ValueError as error:
+            raise ValueError("embedding output must be a 1D or 2D array") from error
 
         if array.size == 0:
             raise ValueError("embedding output cannot be empty")
@@ -63,7 +69,17 @@ class EmbeddingService:
         if array.shape[0] != expected_count:
             raise ValueError("embedding output shape does not match the input batch size")
 
-        if array.shape[1] == 0:
-            raise ValueError("embedding output cannot be empty")
+        if array.shape[1] != 384:
+            raise ValueError("embedding output must contain exactly 384 values")
 
-        return array.tolist()
+        if any(
+            isinstance(value, (bool, np.bool_)) or not isinstance(value, Real)
+            for value in array.flat
+        ):
+            raise ValueError("embedding output values must be numeric")
+
+        numeric_array = np.asarray(array, dtype=float)
+        if not np.isfinite(numeric_array).all():
+            raise ValueError("embedding output values must be finite")
+
+        return numeric_array.tolist()

@@ -1,10 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+from app.clustering.schemas import ClusterableDocument
 from app.clustering.service import DocumentCluster
 
 
@@ -54,5 +55,5 @@ class TopicLabelingService:
         )
 
     @staticmethod
-    def _document_text(document: object) -> str:
-        return (getattr(document, "document_text", None) or "").strip()
+    def _document_text(document: ClusterableDocument) -> str:
+        return document.document_text.strip()

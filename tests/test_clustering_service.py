@@ -1,16 +1,18 @@
+﻿import inspect
+
 import numpy as np
 import pytest
 
-from app.clustering.service import ClusteringService
-from app.database.models import SourceItemModel
+from app.clustering.schemas import ClusterableDocument
+from app.clustering.service import ClusteringService, DocumentCluster
 
 
 class FakeRepository:
-    def __init__(self, documents: list[SourceItemModel]) -> None:
+    def __init__(self, documents: list[ClusterableDocument]) -> None:
         self.documents = documents
         self.calls = 0
 
-    def find_all_with_embeddings(self) -> list[SourceItemModel]:
+    def find_all_with_embeddings(self) -> list[ClusterableDocument]:
         self.calls += 1
         return self.documents
 
@@ -25,11 +27,19 @@ class FakeClusterer:
         return object(), self.labels
 
 
-def _document(document_id: int, value: float) -> SourceItemModel:
-    document = SourceItemModel()
-    document.id = document_id
-    document.embedding = [value] * 384
-    return document
+def _document(document_id: int, value: float) -> ClusterableDocument:
+    return ClusterableDocument(
+        id=document_id,
+        source="hackernews",
+        external_id=str(document_id),
+        document_text="cloud automation",
+        embedding=tuple([value] * 384),
+    )
+
+
+def test_clustering_has_no_source_item_model_dependency() -> None:
+    assert "SourceItemModel" not in inspect.getsource(ClusteringService)
+    assert "SourceItemModel" not in inspect.getsource(DocumentCluster)
 
 
 def test_cluster_documents_reads_embeddings_and_returns_groups_in_memory() -> None:
@@ -73,7 +83,7 @@ def test_cluster_documents_rejects_embedding_with_invalid_length(
     embedding_length: int, message: str
 ) -> None:
     document = _document(1, 0.1)
-    document.embedding = [0.1] * embedding_length
+    object.__setattr__(document, "embedding", tuple([0.1] * embedding_length))
     clusterer = FakeClusterer([0])
 
     with pytest.raises(ValueError, match=message):
@@ -85,7 +95,9 @@ def test_cluster_documents_rejects_embedding_with_invalid_length(
 @pytest.mark.parametrize("invalid_value", [np.nan, np.inf, -np.inf])
 def test_cluster_documents_rejects_non_finite_embedding_values(invalid_value: float) -> None:
     document = _document(1, 0.1)
-    document.embedding[10] = invalid_value
+    embedding = list(document.embedding)
+    embedding[10] = invalid_value
+    object.__setattr__(document, "embedding", tuple(embedding))
     clusterer = FakeClusterer([0])
 
     with pytest.raises(ValueError, match="finite"):
@@ -96,7 +108,7 @@ def test_cluster_documents_rejects_non_finite_embedding_values(invalid_value: fl
 
 def test_cluster_documents_rejects_incoherent_embedding_shape() -> None:
     document = _document(1, 0.1)
-    document.embedding = 0.1
+    object.__setattr__(document, "embedding", 0.1)
     clusterer = FakeClusterer([0])
 
     with pytest.raises(ValueError, match="one-dimensional sequence"):

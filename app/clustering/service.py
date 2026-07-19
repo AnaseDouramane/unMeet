@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from numbers import Real
@@ -6,14 +6,14 @@ from numbers import Real
 import numpy as np
 
 from app.clustering.hdbscan_clusterer import HDBSCANClusterer
-from app.database.models import SourceItemModel
+from app.clustering.schemas import ClusterableDocument
 from app.database.repository import SourceItemRepository
 
 
 @dataclass(frozen=True)
 class DocumentCluster:
     cluster_id: int
-    documents: tuple[SourceItemModel, ...]
+    documents: tuple[ClusterableDocument, ...]
 
 
 class ClusteringService:
@@ -29,7 +29,7 @@ class ClusteringService:
         embeddings = self._validate_embeddings(documents)
         _, labels = self._clusterer.fit_predict(embeddings)
 
-        clusters: dict[int, list[SourceItemModel]] = {}
+        clusters: dict[int, list[ClusterableDocument]] = {}
         for document, label in zip(documents, labels, strict=True):
             cluster_id = int(label)
             if cluster_id == -1:
@@ -42,14 +42,12 @@ class ClusteringService:
         ]
 
     @staticmethod
-    def _validate_embeddings(documents: list[SourceItemModel]) -> np.ndarray:
+    def _validate_embeddings(documents: list[ClusterableDocument]) -> np.ndarray:
         embeddings = [document.embedding for document in documents]
         if len(embeddings) != len(documents):
             raise ValueError("the number of embeddings must match the number of documents")
 
         for index, embedding in enumerate(embeddings):
-            if embedding is None:
-                raise ValueError(f"embedding at index {index} is missing")
             try:
                 embedding_length = len(embedding)
             except TypeError as error:
