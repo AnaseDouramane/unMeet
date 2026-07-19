@@ -1,66 +1,48 @@
 # Database
 
-## Contesto
+## Tecnologie
 
-Il progetto usa SQLAlchemy e PostgreSQL come base di persistenza. Il modello presente oggi è `SourceItemModel`, definito in `app/database/models.py`.
+La persistenza usa SQLAlchemy, PostgreSQL e `pgvector`. Lo script `scripts/init_db.py` abilita l'estensione vettoriale nel database locale.
 
-## Modello Dati
+## SourceItem
 
-`SourceItemModel` rappresenta un record normalizzato proveniente da una fonte esterna.
+`SourceItemModel` rappresenta un documento normalizzato e le informazioni necessarie alla ricerca semantica.
 
-### Campi Principali
+Oltre ai campi sorgente, testo pulito, `document_text`, `dedup_hash` e timestamp, contiene:
 
-- `id`: chiave primaria interna.
-- `external_id`: identificatore della fonte.
-- `source`: nome della fonte, per esempio `hackernews`.
-- `raw_payload`: payload originale della sorgente.
-- `title`: titolo del record.
-- `clean_title`: titolo pulito, se presente.
-- `body`: corpo del record.
-- `clean_body`: corpo pulito, se presente.
-- `url`: link originale.
-- `document_text`: testo composto da titolo e corpo.
-- `dedup_hash`: hash normalizzato usato per il riconoscimento dei duplicati.
-- `author`: autore, se disponibile.
-- `published_at`: data di pubblicazione con timezone.
-- `processed_at`: timestamp di elaborazione, nullable.
-- `engagement_score`: metrica di engagement, se disponibile.
+- `embedding`: vettore `VECTOR(384)`, nullable;
+- `embedding_model`: stringa nullable che identifica il modello che ha prodotto il vettore.
 
-## Significato Di Raw E Processed
+I vincoli di database mantengono coerente la coppia:
 
-La distinzione nel progetto è semplice:
+- `ck_source_items_embedding_requires_model`: un embedding richiede `embedding_model`;
+- `ck_source_items_embedding_model_requires_embedding`: un `embedding_model` richiede embedding;
+- `ck_source_items_embedding_model_not_blank`: il modello non può essere una stringa vuota.
 
-- `raw_payload` conserva la risposta originale della fonte senza perdere struttura o campi extra;
-- i campi derivati, come `clean_title`, `clean_body`, `document_text` e `dedup_hash`, rappresentano la versione processata del contenuto;
-- `title` e `body` nel modello possono ospitare la rappresentazione normalizzata destinata alla persistenza, mentre il payload originale resta intatto in `raw_payload`.
+Restano inoltre il vincolo `UNIQUE(source, external_id)` e l'indice su `dedup_hash`.
 
-La pipeline di preprocessing oggi produce `PreparedDocument` con titolo e corpo puliti, ma non scrive ancora questi dati nel database.
+## Repository e DTO pubblici
 
-## Perché PostgreSQL
+`SourceItemRepository` incapsula SQLAlchemy. Le API pubbliche restituiscono `PersistedSourceItem` oppure `ClusterableDocument`, entrambi immutabili, invece dei modelli ORM.
 
-PostgreSQL è già la base scelta nel repository e offre:
+`PersistedSourceItem` include `embedding`, `embedding_model` e una copia immutabile del payload JSON. Il repository crea il DTO prima di chiudere la sessione, evitando risultati ORM detached.
 
-- vincoli e indici affidabili;
-- supporto nativo a timezone per i timestamp;
-- tipizzazione robusta per la persistenza dei dati normalizzati;
-- compatibilità con `pgvector`, che è preparato nel container Docker.
+Le query vettoriali richiedono `embedding_model` e filtrano sempre su quel valore. Questo impedisce confronti tra embedding generati da modelli differenti.
 
-## Perché JSONB
+## Cluster run e cluster
 
-`raw_payload` usa `JSONB` perché ogni fonte può esporre una struttura diversa e il progetto deve conservare il dato originale senza imporre uno schema rigido su tutto il payload.
+`ClusterRunModel` registra un'esecuzione di clustering e conserva:
 
-I test verificano esplicitamente che il campo sia mappato come `JSONB` in PostgreSQL.
+- `embedding_model` non nullable;
+- `min_cluster_size` non nullable;
+- `min_samples` nullable, perché HDBSCAN può usare il default;
+- `metric` non nullable;
+- timestamp di creazione.
 
-## Vincoli E Indici
+`ClusterModel` appartiene a una run tramite `run_id` e registra label, keyword TF-IDF, centroide pgvector e numero di documenti. La tabella associativa `cluster_source_items` collega ogni cluster ai `SourceItem` che ne fanno parte.
 
-### `UNIQUE(source, external_id)`
+`ClusterRunMetadata`, `PersistedCluster` e `PersistedClusterRun` sono DTO immutabili usati dalle API pubbliche del repository.
 
-Questo vincolo impedisce di salvare due volte lo stesso elemento proveniente dalla stessa fonte. È il meccanismo di base per mantenere l'idempotenza dell'ingestion.
+## Limiti attuali
 
-### `INDEX(dedup_hash)`
-
-L'indice su `dedup_hash` serve a rendere veloce il recupero dei documenti che risultano uguali dopo la normalizzazione del testo.
-
-## Stato Attuale
-
-Il modello è pronto per la persistenza, ma oggi il run principale del progetto si ferma alla preparazione dei documenti e non inserisce record nel database.
+Il database è sacrificabile durante questa fase: non sono presenti migrazioni Alembic. Non vengono ancora salvate probability di membership o altre metriche avanzate HDBSCAN.

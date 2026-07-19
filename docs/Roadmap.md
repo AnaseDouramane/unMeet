@@ -1,27 +1,29 @@
 # Roadmap
 
-## Feature Completate
+## Feature completate
 
-- Struttura del progetto Python con moduli separati per ingestion, preprocessing, database, market e dashboard.
-- Connettore `HackerNewsConnector` per recuperare gli story da Hacker News.
-- Schema comune `SourceItem` per i dati in ingresso.
-- Pulizia HTML e normalizzazione degli spazi.
-- Costruzione del `document_text` da titolo e corpo.
-- Calcolo di `dedup_hash` basato sul testo normalizzato.
-- `PreparedDocument` e `PreprocessingService`.
-- Pipeline corrente che coordina Hacker News e preprocessing.
-- Modello `SourceItemModel` con vincolo di unicità e indice su `dedup_hash`.
-- Bootstrap del database PostgreSQL con `pgvector`.
-- Test automatici per ingestion, preprocessing, pipeline e schema database.
+- Ingestion Hacker News con schema comune `SourceItem`.
+- Preprocessing: pulizia HTML, normalizzazione, `document_text` e `dedup_hash`.
+- Pipeline che genera embedding locali con `sentence-transformers` e persiste i documenti.
+- PostgreSQL con `pgvector` e vettori a 384 dimensioni.
+- Provenance del modello: ogni embedding salvato ha `embedding_model`; query semantiche e clustering sono isolati per modello.
+- Semantic search con distanza coseno, filtrata per `embedding_model`.
+- DTO pubblici immutabili del repository, senza esposizione dei modelli SQLAlchemy.
+- Clustering HDBSCAN configurabile per `min_cluster_size`, `min_samples` e `metric`.
+- Topic labeling TF-IDF con keyword deterministiche.
+- Persistenza di `ClusterRun`, cluster, centroidi, keyword e membership documento-cluster.
+- Snapshot immutabile dei metadata della run: modello embedding e parametri HDBSCAN.
+- Test automatici per ingestion, preprocessing, embedding, repository, schema database, clustering, labeling e pipeline.
 
-## Feature Future
+## Da integrare nel flusso principale
 
-- Persistenza effettiva dei `SourceItemModel` generati dalla pipeline.
-- Ingestion reale da Stack Exchange.
-- Ingestion reale da Reddit.
-- Embedding locali nel flusso principale.
-- Clustering dei documenti.
-- Connessione al layer di market coverage.
-- Dashboard collegata ai dati elaborati.
-- Migrazioni e gestione evolutiva dello schema dati.
-- Eventuale estensione della pipeline oltre Hacker News come fonte primaria attiva.
+- Esecuzione automatica di clustering, labeling e persistenza cluster dopo l'ingestion.
+- Ingestion reale da Stack Exchange e Reddit.
+- Market coverage e dashboard sui dati persistiti.
+
+## Evoluzioni future
+
+- Migrazioni e gestione evolutiva dello schema.
+- Trend detection.
+- Membership probability e metriche HDBSCAN avanzate.
+- Più fonti, supporto multilingua, alert e reportistica.

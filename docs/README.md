@@ -1,8 +1,10 @@
 # Documentazione
 
-Inserire qui i documenti del Milestone 0:
-
-- Vision.md
-- Scope.md
-- Architecture.md
-- Roadmap.md
+- [Vision](Vision.md)
+- [Scope MVP](Scope.md)
+- [Architettura](Architecture.md)
+- [Database e persistenza](database.md)
+- [Roadmap](Roadmap.md)
+- [Workflow](workflow.md)
+- [PRD](PRD.md)
+- [Decisioni architetturali](decisions/)
