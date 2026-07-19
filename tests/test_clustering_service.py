@@ -1,4 +1,4 @@
-﻿import inspect
+import inspect
 
 import numpy as np
 import pytest
@@ -11,9 +11,11 @@ class FakeRepository:
     def __init__(self, documents: list[ClusterableDocument]) -> None:
         self.documents = documents
         self.calls = 0
+        self.embedding_models: list[str] = []
 
-    def find_all_with_embeddings(self) -> list[ClusterableDocument]:
+    def find_all_with_embeddings(self, embedding_model: str) -> list[ClusterableDocument]:
         self.calls += 1
+        self.embedding_models.append(embedding_model)
         return self.documents
 
 
@@ -34,6 +36,7 @@ def _document(document_id: int, value: float) -> ClusterableDocument:
         external_id=str(document_id),
         document_text="cloud automation",
         embedding=tuple([value] * 384),
+        embedding_model="model-a",
     )
 
 
@@ -47,11 +50,15 @@ def test_cluster_documents_reads_embeddings_and_returns_groups_in_memory() -> No
     repository = FakeRepository(documents)
     clusterer = FakeClusterer([1, 0, 1])
 
-    clusters = ClusteringService(repository, clusterer).cluster_documents()
+    clusters = ClusteringService(repository, clusterer).cluster_documents("model-a")
 
     assert repository.calls == 1
+    assert repository.embedding_models == ["model-a"]
     assert clusterer.received_embeddings.shape == (3, 384)
-    assert [(cluster.cluster_id, [document.id for document in cluster.documents]) for cluster in clusters] == [
+    assert [
+        (cluster.cluster_id, [document.id for document in cluster.documents])
+        for cluster in clusters
+    ] == [
         (0, [2]),
         (1, [1, 3]),
     ]
@@ -61,7 +68,7 @@ def test_cluster_documents_ignores_hdbscan_noise() -> None:
     documents = [_document(1, 0.1), _document(2, 0.2)]
     clusterer = FakeClusterer([-1, 2])
 
-    clusters = ClusteringService(FakeRepository(documents), clusterer).cluster_documents()
+    clusters = ClusteringService(FakeRepository(documents), clusterer).cluster_documents("model-a")
 
     assert len(clusters) == 1
     assert clusters[0].cluster_id == 2
@@ -71,8 +78,9 @@ def test_cluster_documents_ignores_hdbscan_noise() -> None:
 def test_cluster_documents_returns_empty_result_without_embeddings() -> None:
     repository = FakeRepository([])
 
-    assert ClusteringService(repository, FakeClusterer([])).cluster_documents() == []
+    assert ClusteringService(repository, FakeClusterer([])).cluster_documents("model-a") == []
     assert repository.calls == 1
+    assert repository.embedding_models == ["model-a"]
 
 
 @pytest.mark.parametrize(
@@ -87,7 +95,7 @@ def test_cluster_documents_rejects_embedding_with_invalid_length(
     clusterer = FakeClusterer([0])
 
     with pytest.raises(ValueError, match=message):
-        ClusteringService(FakeRepository([document]), clusterer).cluster_documents()
+        ClusteringService(FakeRepository([document]), clusterer).cluster_documents("model-a")
 
     assert clusterer.received_embeddings is None
 
@@ -101,7 +109,7 @@ def test_cluster_documents_rejects_non_finite_embedding_values(invalid_value: fl
     clusterer = FakeClusterer([0])
 
     with pytest.raises(ValueError, match="finite"):
-        ClusteringService(FakeRepository([document]), clusterer).cluster_documents()
+        ClusteringService(FakeRepository([document]), clusterer).cluster_documents("model-a")
 
     assert clusterer.received_embeddings is None
 
@@ -112,6 +120,6 @@ def test_cluster_documents_rejects_incoherent_embedding_shape() -> None:
     clusterer = FakeClusterer([0])
 
     with pytest.raises(ValueError, match="one-dimensional sequence"):
-        ClusteringService(FakeRepository([document]), clusterer).cluster_documents()
+        ClusteringService(FakeRepository([document]), clusterer).cluster_documents("model-a")
 
     assert clusterer.received_embeddings is None

@@ -27,6 +27,7 @@ class FakeHackerNewsConnector:
 
 class FakeEmbeddingService:
     def __init__(self) -> None:
+        self.model_name = "fake-embedding-model"
         self.calls: list[str] = []
 
     def encode(self, document_text: str) -> list[float]:
@@ -37,10 +38,10 @@ class FakeEmbeddingService:
 
 class FakeRepository:
     def __init__(self) -> None:
-        self.saved: list[tuple[SourceItem, object, list[float] | None]] = []
+        self.saved: list[tuple[SourceItem, object, list[float] | None, str | None]] = []
 
-    def save(self, source_item, prepared_document, embedding=None):
-        self.saved.append((source_item, prepared_document, embedding))
+    def save(self, source_item, prepared_document, embedding=None, embedding_model=None):
+        self.saved.append((source_item, prepared_document, embedding, embedding_model))
         return prepared_document
 
 
@@ -62,7 +63,9 @@ def test_pipeline_returns_prepared_documents_and_passes_embeddings(monkeypatch) 
     assert [document.source_item.external_id for document in prepared_documents] == [
         str(index) for index in range(10)
     ]
-    assert [saved[0].external_id for saved in repository.saved] == [str(index) for index in range(10)]
+    assert [saved[0].external_id for saved in repository.saved] == [
+        str(index) for index in range(10)
+    ]
     assert [saved[1].document_text for saved in repository.saved] == embedding_service.calls
     assert [saved[2] for saved in repository.saved] == [
         [float(index + 1)] * 384 for index in range(10)
@@ -74,3 +77,4 @@ def test_pipeline_returns_prepared_documents_and_passes_embeddings(monkeypatch) 
     assert prepared_documents[0].source_item.body == "<p>Body 0</p>"
     assert repository.saved[0][0].external_id == "0"
     assert repository.saved[0][1].dedup_hash == prepared_documents[0].dedup_hash
+    assert [saved[3] for saved in repository.saved] == ["fake-embedding-model"] * 10

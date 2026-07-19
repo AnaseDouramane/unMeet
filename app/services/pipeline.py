@@ -22,12 +22,19 @@ class Pipeline:
     def run(self) -> list[PreparedDocument]:
         source_items = list(self.connector.fetch())
         prepared_documents = [self.preprocessing_service.prepare(item) for item in source_items]
-        embeddings = [self.embedding_service.encode(document.document_text) for document in prepared_documents]
+        embeddings = [
+            self.embedding_service.encode(document.document_text) for document in prepared_documents
+        ]
         for source_item, prepared_document, embedding in zip(
             source_items,
             prepared_documents,
             embeddings,
             strict=True,
         ):
-            self.repository.save(source_item, prepared_document, embedding=embedding)
+            self.repository.save(
+                source_item,
+                prepared_document,
+                embedding=embedding,
+                embedding_model=self.embedding_service.model_name,
+            )
         return prepared_documents

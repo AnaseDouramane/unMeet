@@ -16,6 +16,7 @@ class PersistedSourceItem:
     url: str
     document_text: str | None
     embedding: tuple[float, ...] | None
+    embedding_model: str | None
     dedup_hash: str | None
     author: str | None
     published_at: datetime
@@ -31,6 +32,15 @@ class PersistedCluster:
 
 
 @dataclass(frozen=True)
+class ClusterRunMetadata:
+    embedding_model: str
+    min_cluster_size: int
+    min_samples: int | None
+    metric: str
+
+
+@dataclass(frozen=True)
 class PersistedClusterRun:
     id: int
+    metadata: ClusterRunMetadata
     clusters: tuple[PersistedCluster, ...]

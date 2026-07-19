@@ -1,13 +1,16 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from numbers import Real
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from app.clustering.hdbscan_clusterer import HDBSCANClusterer
 from app.clustering.schemas import ClusterableDocument
-from app.database.repository import SourceItemRepository
+
+if TYPE_CHECKING:
+    from app.database.repository import SourceItemRepository
 
 
 @dataclass(frozen=True)
@@ -17,12 +20,14 @@ class DocumentCluster:
 
 
 class ClusteringService:
-    def __init__(self, repository: SourceItemRepository, clusterer: HDBSCANClusterer | None = None) -> None:
+    def __init__(
+        self, repository: SourceItemRepository, clusterer: HDBSCANClusterer | None = None
+    ) -> None:
         self._repository = repository
         self._clusterer = clusterer or HDBSCANClusterer()
 
-    def cluster_documents(self) -> list[DocumentCluster]:
-        documents = self._repository.find_all_with_embeddings()
+    def cluster_documents(self, embedding_model: str) -> list[DocumentCluster]:
+        documents = self._repository.find_all_with_embeddings(embedding_model)
         if not documents:
             return []
 
@@ -55,9 +60,7 @@ class ClusteringService:
                     f"embedding at index {index} must be a one-dimensional sequence"
                 ) from error
             if embedding_length != 384:
-                raise ValueError(
-                    f"embedding at index {index} must contain exactly 384 values"
-                )
+                raise ValueError(f"embedding at index {index} must contain exactly 384 values")
             if any(isinstance(value, bool) or not isinstance(value, Real) for value in embedding):
                 raise ValueError(f"embedding at index {index} contains non-numeric values")
 

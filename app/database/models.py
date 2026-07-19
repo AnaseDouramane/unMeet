@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -18,7 +19,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 
-
 cluster_source_items = Table(
     "cluster_source_items",
     Base.metadata,
@@ -32,6 +32,18 @@ class SourceItemModel(Base):
     __table_args__ = (
         UniqueConstraint("source", "external_id", name="uq_source_items_source_external_id"),
         Index("ix_source_items_dedup_hash", "dedup_hash"),
+        CheckConstraint(
+            "embedding IS NULL OR embedding_model IS NOT NULL",
+            name="ck_source_items_embedding_requires_model",
+        ),
+        CheckConstraint(
+            "embedding_model IS NULL OR embedding IS NOT NULL",
+            name="ck_source_items_embedding_model_requires_embedding",
+        ),
+        CheckConstraint(
+            "embedding_model IS NULL OR btrim(embedding_model) <> ''",
+            name="ck_source_items_embedding_model_not_blank",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -45,6 +57,7 @@ class SourceItemModel(Base):
     url: Mapped[str] = mapped_column(Text)
     document_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
     dedup_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     author: Mapped[str | None] = mapped_column(String(255), nullable=True)
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -62,6 +75,10 @@ class ClusterRunModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    embedding_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    min_cluster_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    min_samples: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    metric: Mapped[str] = mapped_column(String(50), nullable=False)
     clusters: Mapped[list["ClusterModel"]] = relationship(
         back_populates="run", cascade="all, delete-orphan"
     )

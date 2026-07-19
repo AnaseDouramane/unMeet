@@ -8,3 +8,4 @@ class ClusterableDocument:
     external_id: str
     document_text: str
     embedding: tuple[float, ...]
+    embedding_model: str

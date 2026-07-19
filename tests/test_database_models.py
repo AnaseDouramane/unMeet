@@ -1,4 +1,4 @@
-from sqlalchemy import create_mock_engine
+from sqlalchemy import CheckConstraint, create_mock_engine
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.schema import UniqueConstraint
 
@@ -13,6 +13,19 @@ def test_source_items_model_defines_expected_postgresql_schema() -> None:
     assert table.c.processed_at.nullable is True
     assert table.c.embedding.nullable is True
     assert table.c.embedding.type.dim == 384
+    assert table.c.embedding_model.nullable is True
+    assert table.c.embedding_model.type.length == 255
+    constraints = {
+        constraint.name: str(constraint.sqltext)
+        for constraint in table.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+    assert constraints["ck_source_items_embedding_requires_model"] == (
+        "embedding IS NULL OR embedding_model IS NOT NULL"
+    )
+    assert constraints["ck_source_items_embedding_model_requires_embedding"] == (
+        "embedding_model IS NULL OR embedding IS NOT NULL"
+    )
     assert any(
         isinstance(constraint, UniqueConstraint)
         and constraint.name == "uq_source_items_source_external_id"
@@ -40,6 +53,9 @@ def test_source_items_create_all_emits_postgresql_ddl() -> None:
     assert "CREATE TABLE source_items" in ddl
     assert "raw_payload JSONB" in ddl
     assert "embedding VECTOR(384)" in ddl
+    assert "embedding_model VARCHAR(255)" in ddl
+    assert "ck_source_items_embedding_requires_model" in ddl
+    assert "ck_source_items_embedding_model_requires_embedding" in ddl
     assert "processed_at TIMESTAMP WITH TIME ZONE" in ddl
     assert "CONSTRAINT uq_source_items_source_external_id UNIQUE (source, external_id)" in ddl
     assert "CREATE INDEX ix_source_items_dedup_hash ON source_items (dedup_hash)" in ddl
@@ -53,6 +69,10 @@ def test_cluster_models_define_run_snapshot_schema_and_relations() -> None:
     assert run_table.c.id.primary_key is True
     assert run_table.c.created_at.type.timezone is True
     assert run_table.c.created_at.server_default is not None
+    assert run_table.c.embedding_model.nullable is False
+    assert run_table.c.min_cluster_size.nullable is False
+    assert run_table.c.min_samples.nullable is True
+    assert run_table.c.metric.nullable is False
     assert cluster_table.c.id.primary_key is True
     assert cluster_table.c.id.autoincrement is True
     assert cluster_table.c.run_id.foreign_keys

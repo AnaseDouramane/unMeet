@@ -1,4 +1,4 @@
-﻿import inspect
+import inspect
 
 import pytest
 
@@ -14,6 +14,7 @@ def _document(document_id: int, document_text: str) -> ClusterableDocument:
         external_id=str(document_id),
         document_text=document_text,
         embedding=tuple([0.1] * 384),
+        embedding_model="model-a",
     )
 
 
