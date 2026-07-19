@@ -10,3 +10,4 @@ scikit-learn>=1.5
 sentence-transformers>=3.0
 sqlalchemy>=2.0
 streamlit>=1.36
+transformers>=4.51
