@@ -2,9 +2,11 @@ from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -44,6 +46,26 @@ class SourceItemModel(Base):
             "embedding_model IS NULL OR btrim(embedding_model) <> ''",
             name="ck_source_items_embedding_model_not_blank",
         ),
+        CheckConstraint(
+            "is_problem IS NULL OR (problem_confidence IS NOT NULL AND problem_reason IS NOT NULL AND problem_classifier IS NOT NULL AND classified_at IS NOT NULL)",
+            name="ck_source_items_problem_requires_metadata",
+        ),
+        CheckConstraint(
+            "is_problem IS NOT NULL OR (problem_confidence IS NULL AND problem_reason IS NULL AND problem_classifier IS NULL AND classified_at IS NULL)",
+            name="ck_source_items_problem_metadata_requires_flag",
+        ),
+        CheckConstraint(
+            "problem_confidence IS NULL OR (problem_confidence >= 0 AND problem_confidence <= 1)",
+            name="ck_source_items_problem_confidence_range",
+        ),
+        CheckConstraint(
+            "embedding IS NULL OR is_problem IS TRUE",
+            name="ck_source_items_embedding_requires_problem",
+        ),
+        CheckConstraint(
+            "is_problem IS NULL OR is_problem = TRUE OR (embedding IS NULL AND embedding_model IS NULL)",
+            name="ck_source_items_non_problem_has_no_embedding",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -56,6 +78,11 @@ class SourceItemModel(Base):
     clean_body: Mapped[str | None] = mapped_column(Text, nullable=True)
     url: Mapped[str] = mapped_column(Text)
     document_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_problem: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    problem_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    problem_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    problem_classifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
     dedup_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

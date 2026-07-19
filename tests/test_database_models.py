@@ -15,6 +15,13 @@ def test_source_items_model_defines_expected_postgresql_schema() -> None:
     assert table.c.embedding.type.dim == 384
     assert table.c.embedding_model.nullable is True
     assert table.c.embedding_model.type.length == 255
+    assert table.c.is_problem.nullable is True
+    assert table.c.problem_confidence.nullable is True
+    assert table.c.problem_reason.nullable is True
+    assert table.c.problem_classifier.nullable is True
+    assert table.c.problem_classifier.type.length == 255
+    assert table.c.classified_at.nullable is True
+    assert table.c.classified_at.type.timezone is True
     constraints = {
         constraint.name: str(constraint.sqltext)
         for constraint in table.constraints
@@ -25,6 +32,18 @@ def test_source_items_model_defines_expected_postgresql_schema() -> None:
     )
     assert constraints["ck_source_items_embedding_model_requires_embedding"] == (
         "embedding_model IS NULL OR embedding IS NOT NULL"
+    )
+    assert constraints["ck_source_items_problem_requires_metadata"] == (
+        "is_problem IS NULL OR (problem_confidence IS NOT NULL AND problem_reason IS NOT NULL AND problem_classifier IS NOT NULL AND classified_at IS NOT NULL)"
+    )
+    assert constraints["ck_source_items_problem_confidence_range"] == (
+        "problem_confidence IS NULL OR (problem_confidence >= 0 AND problem_confidence <= 1)"
+    )
+    assert constraints["ck_source_items_embedding_requires_problem"] == (
+        "embedding IS NULL OR is_problem IS TRUE"
+    )
+    assert constraints["ck_source_items_non_problem_has_no_embedding"] == (
+        "is_problem IS NULL OR is_problem = TRUE OR (embedding IS NULL AND embedding_model IS NULL)"
     )
     assert any(
         isinstance(constraint, UniqueConstraint)
@@ -54,8 +73,17 @@ def test_source_items_create_all_emits_postgresql_ddl() -> None:
     assert "raw_payload JSONB" in ddl
     assert "embedding VECTOR(384)" in ddl
     assert "embedding_model VARCHAR(255)" in ddl
+    assert "is_problem BOOLEAN" in ddl
+    assert "problem_confidence FLOAT" in ddl
+    assert "problem_reason TEXT" in ddl
+    assert "problem_classifier VARCHAR(255)" in ddl
+    assert "classified_at TIMESTAMP WITH TIME ZONE" in ddl
     assert "ck_source_items_embedding_requires_model" in ddl
     assert "ck_source_items_embedding_model_requires_embedding" in ddl
+    assert "ck_source_items_problem_requires_metadata" in ddl
+    assert "ck_source_items_problem_confidence_range" in ddl
+    assert "ck_source_items_embedding_requires_problem" in ddl
+    assert "ck_source_items_non_problem_has_no_embedding" in ddl
     assert "processed_at TIMESTAMP WITH TIME ZONE" in ddl
     assert "CONSTRAINT uq_source_items_source_external_id UNIQUE (source, external_id)" in ddl
     assert "CREATE INDEX ix_source_items_dedup_hash ON source_items (dedup_hash)" in ddl

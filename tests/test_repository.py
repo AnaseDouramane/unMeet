@@ -18,6 +18,7 @@ from app.database.schemas import (
 )
 from app.ingestion.schemas import SourceItem
 from app.preprocessing.schemas import PreparedDocument
+from app.problem_detection.schemas import ProblemDetectionResult
 
 
 class FakeScalarResult:
@@ -137,6 +138,15 @@ def _build_embedding(value: float = 0.1) -> list[float]:
     return [value] * 384
 
 
+def _problem_result(is_problem: bool = True) -> ProblemDetectionResult:
+    return ProblemDetectionResult(
+        is_problem=is_problem,
+        confidence=0.9,
+        reason="deterministic test classification",
+        classifier_name="fake-problem-classifier",
+    )
+
+
 def _source_model(document_id: int = 1, value: float = 0.1) -> SourceItemModel:
     model = SourceItemModel()
     model.id = document_id
@@ -149,6 +159,11 @@ def _source_model(document_id: int = 1, value: float = 0.1) -> SourceItemModel:
     model.clean_body = "Automate cloud operations"
     model.url = "https://example.com/cloud"
     model.document_text = "cloud automation"
+    model.is_problem = True
+    model.problem_confidence = 0.9
+    model.problem_reason = "deterministic test classification"
+    model.problem_classifier = "fake-problem-classifier"
+    model.classified_at = datetime.fromtimestamp(1_700_000_050, tz=timezone.utc)
     model.embedding = _build_embedding(value)
     model.embedding_model = "model-a"
     model.dedup_hash = f"hash-{document_id}"
@@ -202,6 +217,12 @@ def _run_metadata(embedding_model: str = "model-a") -> ClusterRunMetadata:
 def _assert_immutable_source_item(result: PersistedSourceItem) -> None:
     assert isinstance(result, PersistedSourceItem)
     assert not isinstance(result, SourceItemModel)
+    assert result.is_problem is True
+    assert result.problem_confidence == 0.9
+    assert result.problem_reason == "deterministic test classification"
+    assert result.problem_classifier == "fake-problem-classifier"
+    assert result.classified_at is not None
+    assert result.classified_at.tzinfo is not None
     assert result.embedding == tuple(_build_embedding())
     assert result.embedding_model == "model-a"
     with pytest.raises(FrozenInstanceError):
@@ -219,7 +240,11 @@ def test_repository_persists_timezone_aware_timestamp_in_immutable_dto() -> None
     prepared_document = _build_prepared_document(source_item)
 
     saved = repository.save(
-        source_item, prepared_document, embedding=_build_embedding(), embedding_model="model-a"
+        source_item,
+        prepared_document,
+        embedding=_build_embedding(),
+        embedding_model="model-a",
+        problem_detection_result=_problem_result(),
     )
 
     assert session.committed == 1
@@ -279,9 +304,11 @@ def test_find_all_with_embeddings_maps_orm_models_to_detached_clusterable_docume
     model.document_text = "changed after close"
     assert documents[0].document_text == "cloud automation"
     statement = session.scalars_statements[0]
-    compiled_sql = str(statement.compile(dialect=postgresql.dialect()))
+    compiled_sql = str(statement.compile(dialect=postgresql.dialect())).lower()
+    assert "source_items.is_problem is true" in compiled_sql
+    assert "source_items.embedding is not null" in compiled_sql
     assert "source_items.embedding_model =" in compiled_sql
-    assert "ORDER BY source_items.id" in compiled_sql
+    assert "order by source_items.id" in compiled_sql
 
 
 def test_find_similar_orders_by_cosine_distance_and_excludes_null_embeddings() -> None:
@@ -299,8 +326,9 @@ def test_find_similar_orders_by_cosine_distance_and_excludes_null_embeddings() -
     rows[0].title = "changed after close"
     assert found[0].title == "Cloud automation"
     statement = session.scalars_statements[0]
-    compiled_sql = str(statement.compile(dialect=postgresql.dialect()))
-    assert "source_items.embedding IS NOT NULL" in compiled_sql
+    compiled_sql = str(statement.compile(dialect=postgresql.dialect())).lower()
+    assert "source_items.is_problem is true" in compiled_sql
+    assert "source_items.embedding is not null" in compiled_sql
     assert "source_items.embedding <=>" in compiled_sql
     assert "source_items.embedding_model =" in compiled_sql
 
@@ -440,7 +468,11 @@ def test_repository_rejects_naive_published_at_before_opening_session() -> None:
 
     with pytest.raises(ValueError, match="published_at must be timezone-aware"):
         repository.save(
-            source_item, prepared_document, embedding=_build_embedding(), embedding_model="model-a"
+            source_item,
+            prepared_document,
+            embedding=_build_embedding(),
+            embedding_model="model-a",
+            problem_detection_result=_problem_result(),
         )
 
 
@@ -480,11 +512,15 @@ def test_repository_stores_embedding_model_and_preserves_existing_embedding_on_u
         prepared_document,
         embedding=_build_embedding(0.2),
         embedding_model="model-a",
+        problem_detection_result=_problem_result(),
     )
 
     stored = insert_session.added[0]
     assert stored.embedding == _build_embedding(0.2)
     assert stored.embedding_model == "model-a"
+    assert stored.is_problem is True
+    assert stored.problem_confidence == 0.9
+    classified_at = stored.classified_at
 
     update_session = FakeSession([stored])
     SourceItemRepository(session_factory=FakeSessionFactory([update_session])).save(
@@ -495,6 +531,9 @@ def test_repository_stores_embedding_model_and_preserves_existing_embedding_on_u
     )
     assert stored.embedding == _build_embedding(0.3)
     assert stored.embedding_model == "model-b"
+    assert stored.is_problem is True
+    assert stored.problem_confidence == 0.9
+    assert stored.classified_at == classified_at
 
     preserve_session = FakeSession([stored])
     SourceItemRepository(session_factory=FakeSessionFactory([preserve_session])).save(
@@ -551,4 +590,43 @@ def test_cluster_repository_rejects_documents_from_a_different_embedding_model()
             cluster,
             label,
             _run_metadata("model-a"),
+        )
+
+
+def test_repository_persists_non_problem_classification_without_embedding() -> None:
+    source_item = _build_source_item()
+    prepared_document = _build_prepared_document(source_item)
+    session = FakeSession([None])
+
+    saved = SourceItemRepository(session_factory=FakeSessionFactory([session])).save(
+        source_item,
+        prepared_document,
+        problem_detection_result=_problem_result(False),
+    )
+
+    model = session.added[0]
+    assert model.is_problem is False
+    assert model.problem_confidence == 0.9
+    assert model.problem_reason == "deterministic test classification"
+    assert model.problem_classifier == "fake-problem-classifier"
+    assert model.classified_at.tzinfo is not None
+    assert model.embedding is None
+    assert model.embedding_model is None
+    assert saved.is_problem is False
+    assert saved.embedding is None
+    assert saved.embedding_model is None
+
+
+def test_repository_rejects_embedding_for_a_non_problem_before_opening_session() -> None:
+    repository = SourceItemRepository(session_factory=FailingSessionFactory())
+    source_item = _build_source_item()
+    prepared_document = _build_prepared_document(source_item)
+
+    with pytest.raises(ValueError, match="is_problem=True"):
+        repository.save(
+            source_item,
+            prepared_document,
+            embedding=_build_embedding(),
+            embedding_model="model-a",
+            problem_detection_result=_problem_result(False),
         )

@@ -20,6 +20,8 @@ from app.database.schemas import (
 from app.database.session import SessionLocal
 from app.ingestion.schemas import SourceItem
 from app.preprocessing.schemas import PreparedDocument
+from app.problem_detection.schemas import ProblemDetectionResult
+from app.problem_detection.service import validate_problem_detection_result
 
 
 class SourceItemRepository:
@@ -79,6 +81,7 @@ class SourceItemRepository:
             statement = (
                 select(SourceItemModel)
                 .where(
+                    SourceItemModel.is_problem.is_(True),
                     SourceItemModel.embedding.is_not(None),
                     SourceItemModel.embedding_model == normalized_embedding_model,
                 )
@@ -97,6 +100,7 @@ class SourceItemRepository:
             statement = (
                 select(SourceItemModel)
                 .where(
+                    SourceItemModel.is_problem.is_(True),
                     SourceItemModel.embedding.is_not(None),
                     SourceItemModel.embedding_model == normalized_embedding_model,
                 )
@@ -119,6 +123,7 @@ class SourceItemRepository:
         prepared_document: PreparedDocument,
         embedding: Sequence[float] | None = None,
         embedding_model: str | None = None,
+        problem_detection_result: ProblemDetectionResult | None = None,
     ) -> PersistedSourceItem:
         self._validate_published_at(source_item.published_at)
         normalized_embedding = self._normalize_embedding(embedding)
@@ -126,6 +131,14 @@ class SourceItemRepository:
             normalized_embedding,
             embedding_model,
         )
+        normalized_problem_result = self._normalize_problem_detection_result(
+            problem_detection_result
+        )
+        if normalized_embedding is not None and (
+            normalized_problem_result is not None and not normalized_problem_result.is_problem
+        ):
+            raise ValueError("embedding requires is_problem=True")
+
         session = self._open_session()
         try:
             existing = self._get_by_source_and_external_id(
@@ -133,24 +146,25 @@ class SourceItemRepository:
                 source_item.source,
                 source_item.external_id,
             )
-            if existing is not None:
-                self._apply_source_item(existing, source_item)
-                self._apply_prepared_document(existing, prepared_document)
-                if normalized_embedding is not None:
-                    existing.embedding = normalized_embedding
-                    existing.embedding_model = normalized_embedding_model
-                existing.processed_at = datetime.now(timezone.utc)
-                session.commit()
-                session.refresh(existing)
-                return self._to_persisted_source_item(existing)
+            effective_is_problem = (
+                normalized_problem_result.is_problem
+                if normalized_problem_result is not None
+                else (None if existing is None else existing.is_problem)
+            )
+            if normalized_embedding is not None and effective_is_problem is not True:
+                raise ValueError("embedding requires an is_problem=True classification")
 
-            model = SourceItemModel()
+            model = existing or SourceItemModel()
             self._apply_source_item(model, source_item)
             self._apply_prepared_document(model, prepared_document)
-            model.embedding = normalized_embedding
-            model.embedding_model = normalized_embedding_model
+            self._apply_problem_detection_result(model, normalized_problem_result)
+            if normalized_embedding is not None:
+                model.embedding = normalized_embedding
+                model.embedding_model = normalized_embedding_model
             model.processed_at = datetime.now(timezone.utc)
-            session.add(model)
+
+            if existing is None:
+                session.add(model)
             session.commit()
             session.refresh(model)
             return self._to_persisted_source_item(model)
@@ -173,6 +187,11 @@ class SourceItemRepository:
             clean_body=model.clean_body,
             url=model.url,
             document_text=model.document_text,
+            is_problem=model.is_problem,
+            problem_confidence=model.problem_confidence,
+            problem_reason=model.problem_reason,
+            problem_classifier=model.problem_classifier,
+            classified_at=model.classified_at,
             embedding=(
                 None
                 if model.embedding is None
@@ -188,6 +207,8 @@ class SourceItemRepository:
 
     @staticmethod
     def _to_clusterable_document(model: SourceItemModel) -> ClusterableDocument:
+        if model.is_problem is not True:
+            raise ValueError("cannot map a source item that is not a problem")
         if model.embedding is None or model.embedding_model is None:
             raise ValueError("cannot map a source item without embedding metadata")
         return ClusterableDocument(
@@ -219,6 +240,30 @@ class SourceItemRepository:
         model.clean_body = prepared_document.body
         model.document_text = prepared_document.document_text
         model.dedup_hash = prepared_document.dedup_hash
+
+    @staticmethod
+    def _apply_problem_detection_result(
+        model: SourceItemModel,
+        result: ProblemDetectionResult | None,
+    ) -> None:
+        if result is None:
+            return
+        model.is_problem = result.is_problem
+        model.problem_confidence = float(result.confidence)
+        model.problem_reason = result.reason
+        model.problem_classifier = result.classifier_name
+        model.classified_at = datetime.now(timezone.utc)
+        if not result.is_problem:
+            model.embedding = None
+            model.embedding_model = None
+
+    @staticmethod
+    def _normalize_problem_detection_result(
+        result: ProblemDetectionResult | None,
+    ) -> ProblemDetectionResult | None:
+        if result is None:
+            return None
+        return validate_problem_detection_result(result)
 
     @staticmethod
     def _normalize_embedding(embedding: Sequence[float] | None) -> list[float] | None:

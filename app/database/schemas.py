@@ -15,6 +15,11 @@ class PersistedSourceItem:
     clean_body: str | None
     url: str
     document_text: str | None
+    is_problem: bool | None
+    problem_confidence: float | None
+    problem_reason: str | None
+    problem_classifier: str | None
+    classified_at: datetime | None
     embedding: tuple[float, ...] | None
     embedding_model: str | None
     dedup_hash: str | None
