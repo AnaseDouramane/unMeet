@@ -22,6 +22,14 @@ def _ingestion_fail_fast() -> bool:
     return os.getenv("INGESTION_FAIL_FAST", "true").strip().lower() in {"1", "true", "yes"}
 
 
+def _api_cors_origins() -> tuple[str, ...]:
+    return tuple(
+        origin.strip()
+        for origin in os.getenv("API_CORS_ORIGINS", "http://localhost:8501").split(",")
+        if origin.strip()
+    )
+
+
 @dataclass(frozen=True)
 class Settings:
     environment: str = os.getenv("UNMEET_ENV", "development")
@@ -43,6 +51,11 @@ class Settings:
         "EMBEDDING_MODEL",
         "sentence-transformers/all-MiniLM-L6-v2",
     )
+    api_title: str = os.getenv("API_TITLE", "unMeet API")
+    api_version: str = os.getenv("API_VERSION", "0.1.0")
+    api_host: str = os.getenv("API_HOST", "127.0.0.1")
+    api_port: int = int(os.getenv("API_PORT", "8000"))
+    api_cors_origins: tuple[str, ...] = _api_cors_origins()
 
 
 settings = Settings()
