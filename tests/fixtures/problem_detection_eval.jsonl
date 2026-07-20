@@ -1,0 +1,32 @@
+{"id":"case-001","text":"I lose two hours every Friday reconciling invoices between three spreadsheets.","expected_is_problem":true,"category":"manual_workflow"}
+{"id":"case-002","text":"Our support team keeps copying the same customer details into two systems.","expected_is_problem":true,"category":"repetitive_task"}
+{"id":"case-003","text":"Deployments fail unpredictably and I cannot tell which configuration changed.","expected_is_problem":true,"category":"explicit_pain_point"}
+{"id":"case-004","text":"I wish there were one place to track all vendor contract renewal dates.","expected_is_problem":true,"category":"unmet_need"}
+{"id":"case-005","text":"Is there a tool that turns meeting notes into assigned follow-up tasks?","expected_is_problem":true,"category":"request_for_tool"}
+{"id":"case-006","text":"It is frustrating to search five dashboards before I can answer a customer question.","expected_is_problem":true,"category":"frustrating_experience"}
+{"id":"case-007","text":"Every month I manually download usage reports and merge them for finance.","expected_is_problem":true,"category":"manual_workflow"}
+{"id":"case-008","text":"We need a simpler way to collect approvals from clients who do not use our portal.","expected_is_problem":true,"category":"unmet_need"}
+{"id":"case-009","text":"I keep forgetting to rotate API keys because the process has too many manual steps.","expected_is_problem":true,"category":"explicit_pain_point"}
+{"id":"case-010","text":"Can anyone recommend a tool for detecting duplicate bug reports automatically?","expected_is_problem":true,"category":"request_for_tool"}
+{"id":"case-011","text":"Preparing a weekly status update means rewriting the same information for each stakeholder.","expected_is_problem":true,"category":"repetitive_task"}
+{"id":"case-012","text":"The onboarding checklist is so confusing that new hires repeatedly miss required access requests.","expected_is_problem":true,"category":"frustrating_experience"}
+{"id":"case-013","text":"I spend too much time chasing colleagues for expense receipt photos.","expected_is_problem":true,"category":"manual_workflow"}
+{"id":"case-014","text":"There is no easy way for a small team to compare cloud costs across accounts.","expected_is_problem":true,"category":"unmet_need"}
+{"id":"case-015","text":"Could a tool notify us when a critical dependency has no active maintainer?","expected_is_problem":true,"category":"request_for_tool"}
+{"id":"case-016","text":"It takes several retries to export the report, and the error message never explains why.","expected_is_problem":true,"category":"explicit_pain_point"}
+{"id":"case-017","text":"OpenAI announced a new model with improved coding capabilities.","expected_is_problem":false,"category":"news"}
+{"id":"case-018","text":"Our company is releasing version 3.0 of the analytics dashboard today.","expected_is_problem":false,"category":"product_announcement"}
+{"id":"case-019","text":"This tutorial explains how to run FastAPI in Docker Compose.","expected_is_problem":false,"category":"tutorial"}
+{"id":"case-020","text":"The platform provides automated invoice matching and approval workflows.","expected_is_problem":false,"category":"solution_description"}
+{"id":"case-021","text":"I think remote work tools are generally better than office-only processes.","expected_is_problem":false,"category":"generic_opinion"}
+{"id":"case-022","text":"PostgreSQL uses indexes to speed up many query patterns.","expected_is_problem":false,"category":"technical_discussion"}
+{"id":"case-023","text":"A new open-source library for observability was published this week.","expected_is_problem":false,"category":"news"}
+{"id":"case-024","text":"We are excited to introduce a new calendar integration in our product.","expected_is_problem":false,"category":"product_announcement"}
+{"id":"case-025","text":"Here is a step-by-step guide to configure OAuth for a Python application.","expected_is_problem":false,"category":"tutorial"}
+{"id":"case-026","text":"The service automatically summarizes calls and sends the summary by email.","expected_is_problem":false,"category":"solution_description"}
+{"id":"case-027","text":"AI assistants will probably become standard in most workplaces.","expected_is_problem":false,"category":"generic_opinion"}
+{"id":"case-028","text":"Vector databases store embeddings and support similarity search.","expected_is_problem":false,"category":"technical_discussion"}
+{"id":"case-029","text":"This release adds support for SSO and audit logs.","expected_is_problem":false,"category":"product_announcement"}
+{"id":"case-030","text":"A comparison of REST and GraphQL trade-offs for public APIs.","expected_is_problem":false,"category":"technical_discussion"}
+{"id":"case-031","text":"The new feature helps teams organize project documents in folders.","expected_is_problem":false,"category":"solution_description"}
+{"id":"case-032","text":"Many developers prefer typed languages for large codebases.","expected_is_problem":false,"category":"generic_opinion"}
