@@ -17,7 +17,7 @@ class FakeTokenizer:
         self.chat_template_calls.append((messages, kwargs))
         if self.rejects_non_thinking and "enable_thinking" in kwargs:
             raise TypeError("enable_thinking is unsupported")
-        return "rendered prompt"
+        return "\n".join(message["content"] for message in messages)
 
     def __call__(self, prompt: str, return_tensors: str):
         self.prompts.append(prompt)
@@ -97,12 +97,38 @@ def test_qwen3_classifier_returns_a_positive_classification_with_a_correct_promp
     assert model.generate_calls == [
         {"input_ids": [[101, 102]], "do_sample": False, "max_new_tokens": 128}
     ]
-    messages, options = tokenizer.chat_template_calls[0]
+    _, options = tokenizer.chat_template_calls[0]
     assert options["enable_thinking"] is False
     assert options["add_generation_prompt"] is True
-    assert "problem, need, or pain point" in messages[0]["content"]
-    assert "news, announcements, tutorials, promotions" in messages[0]["content"]
-    assert messages[1]["content"].endswith("My deployment keeps failing and I need help")
+    assert tokenizer.prompts[0].endswith("My deployment keeps failing and I need help")
+
+
+def test_qwen3_classifier_sends_the_complete_prompt_contract_to_the_tokenizer(monkeypatch) -> None:
+    classifier, tokenizer, _, _, _ = _classifier(
+        monkeypatch,
+        '{"is_problem": false, "confidence": 0.8, "reason": "Prompt contract test"}',
+    )
+
+    classifier.classify("Content under test")
+
+    prompt = tokenizer.prompts[0]
+    assert "a concrete difficulty" in prompt
+    assert "a manual, costly, or repetitive task" in prompt
+    assert "an explicit request for a tool or solution" in prompt
+    assert "news and announcements" in prompt
+    assert "product releases" in prompt
+    assert "tutorials and guides" in prompt
+    assert "descriptions of solutions" in prompt
+    assert "If uncertain, set is_problem to false" in prompt
+    assert "Do not infer a problem merely because a product, technology, or solution could satisfy" in prompt
+
+    assert "Every week I manually copy invoices into our accounting system; it takes hours." in prompt
+    assert "Is there a tool that alerts me when a customer's subscription is about to expire?" in prompt
+    assert "OpenAI released a new model with improved reasoning capabilities." in prompt
+    assert "This guide shows how to deploy FastAPI with Docker." in prompt
+    assert "We are announcing version 2.0 of our analytics platform." in prompt
+    assert prompt.count("Result: is_problem=true") == 2
+    assert prompt.count("Result: is_problem=false") == 3
 
 
 def test_qwen3_classifier_returns_a_negative_classification(monkeypatch) -> None:

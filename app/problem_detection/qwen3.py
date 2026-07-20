@@ -57,11 +57,24 @@ class Qwen3ProblemClassifier:
             {
                 "role": "system",
                 "content": (
-                    "Classify whether the content expresses a real problem, need, or pain point. "
-                    "Treat a concrete unmet need, difficulty, frustration, or request for help as "
-                    "a problem. Treat news, announcements, tutorials, promotions, and generic "
-                    "discussions as not problems unless the author clearly expresses their own "
-                    "problem or need. Return exactly one JSON object with no prose or extra fields: "
+                    "Classify whether the content itself expresses a real problem, need, or pain point. "
+                    "Set is_problem to true only when the text directly, or with strong implicit evidence, "
+                    "expresses at least one of: a concrete difficulty; a lived frustration; a manual, costly, "
+                    "or repetitive task; an unmet need; or an explicit request for a tool or solution. "
+                    "Set is_problem to false for news and announcements, product releases, tutorials and "
+                    "guides, descriptions of solutions, generic opinions, and technical content without an "
+                    "expressed pain point. Do not infer a problem merely because a product, technology, or "
+                    "solution could satisfy a possible need. If uncertain, set is_problem to false. "
+                    "Examples: \n"
+                    "- Content: 'Every week I manually copy invoices into our accounting system; it takes hours.' "
+                    "Result: is_problem=true.\n"
+                    "- Content: 'Is there a tool that alerts me when a customer's subscription is about to expire?' "
+                    "Result: is_problem=true.\n"
+                    "- Content: 'OpenAI released a new model with improved reasoning capabilities.' "
+                    "Result: is_problem=false.\n"
+                    "- Content: 'This guide shows how to deploy FastAPI with Docker.' Result: is_problem=false.\n"
+                    "- Content: 'We are announcing version 2.0 of our analytics platform.' Result: is_problem=false. "
+                    "Return exactly one JSON object with no prose or extra fields: "
                     '{"is_problem": boolean, "confidence": number between 0 and 1, '
                     '"reason": "short non-empty explanation"}. '
                     "Do not use markdown unless required by the response format."
