@@ -6,7 +6,7 @@ from app.clustering.schemas import (
     ClusterTrend,
     TrendCluster,
 )
-from app.clustering.service import ClusteringService, DocumentCluster
+from app.clustering.service import ClusteringResult, ClusteringService, DocumentCluster
 from app.clustering.topic_labeling import TopicLabel, TopicLabelingService
 from app.clustering.trend_detection import TrendDetectionService
 
@@ -16,6 +16,7 @@ __all__ = [
     "ClusterMatchingService",
     "ClusterableDocument",
     "ClusterTrend",
+    "ClusteringResult",
     "ClusteringService",
     "DocumentCluster",
     "TopicLabel",

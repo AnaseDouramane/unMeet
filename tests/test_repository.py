@@ -13,7 +13,9 @@ from app.database.repository import ClusterRepository, SourceItemRepository
 from app.database.schemas import (
     ClusterRunMetadata,
     PersistedCluster,
+    PersistedClusterDetails,
     PersistedClusterRun,
+    PersistedClusterRunDetails,
     PersistedSourceItem,
 )
 from app.ingestion.schemas import SourceItem
@@ -37,6 +39,7 @@ class FakeSession:
     ) -> None:
         self.scalar_results = scalar_results or []
         self.scalars_results = scalars_results or []
+        self.scalar_statements = []
         self.scalars_statements = []
         self.added = []
         self.committed = 0
@@ -53,6 +56,7 @@ class FakeSession:
         return result
 
     def scalar(self, statement):
+        self.scalar_statements.append(statement)
         if not self.scalar_results:
             raise AssertionError(f"Unexpected scalar call: {statement}")
         result = self.scalar_results.pop(0)
@@ -371,6 +375,60 @@ def test_cluster_repository_resolves_source_items_by_document_id_and_returns_det
     assert run_model.min_cluster_size == 5
     assert run_model.min_samples is None
     assert run_model.metric == "euclidean"
+
+
+def test_cluster_repository_returns_latest_compatible_run_as_a_dto() -> None:
+    created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    run = ClusterRunModel(
+        id=12,
+        created_at=created_at,
+        embedding_model="model-a",
+        min_cluster_size=5,
+        min_samples=None,
+        metric="euclidean",
+    )
+    session = FakeSession(scalar_results=[run])
+
+    result = ClusterRepository(session_factory=FakeSessionFactory([session])).find_latest_compatible_run(
+        _run_metadata(),
+        exclude_run_id=20,
+    )
+
+    assert result == PersistedClusterRunDetails(12, created_at, _run_metadata())
+    compiled_sql = str(session.scalar_statements[0].compile(dialect=postgresql.dialect()))
+    assert "cluster_runs.embedding_model" in compiled_sql
+    assert "cluster_runs.id !=" in compiled_sql
+
+
+def test_cluster_repository_returns_run_clusters_as_dtos_in_deterministic_order() -> None:
+    first = ClusterModel(
+        id=101,
+        run_id=12,
+        local_cluster_id=1,
+        label="first",
+        keywords=["first"],
+        centroid=_build_embedding(),
+        document_count=2,
+    )
+    second = ClusterModel(
+        id=102,
+        run_id=12,
+        local_cluster_id=2,
+        label="second",
+        keywords=["second"],
+        centroid=_build_embedding(),
+        document_count=3,
+    )
+    session = FakeSession(scalars_results=[[first, second]])
+
+    result = ClusterRepository(session_factory=FakeSessionFactory([session])).get_clusters_for_run(12)
+
+    assert result == (
+        PersistedClusterDetails(101, 12, 1, "first", ("first",), tuple(_build_embedding()), 2),
+        PersistedClusterDetails(102, 12, 2, "second", ("second",), tuple(_build_embedding()), 3),
+    )
+    compiled_sql = str(session.scalars_statements[0].compile(dialect=postgresql.dialect()))
+    assert "ORDER BY clusters.local_cluster_id, clusters.id" in compiled_sql
 
 
 def test_cluster_repository_updates_only_within_the_same_run() -> None:

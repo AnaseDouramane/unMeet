@@ -37,6 +37,17 @@ class PersistedCluster:
 
 
 @dataclass(frozen=True)
+class PersistedClusterDetails:
+    id: int
+    run_id: int
+    local_cluster_id: int
+    label: str
+    keywords: tuple[str, ...]
+    centroid: tuple[float, ...]
+    document_count: int
+
+
+@dataclass(frozen=True)
 class ClusterRunMetadata:
     embedding_model: str
     min_cluster_size: int
@@ -49,3 +60,11 @@ class PersistedClusterRun:
     id: int
     metadata: ClusterRunMetadata
     clusters: tuple[PersistedCluster, ...]
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class PersistedClusterRunDetails:
+    id: int
+    created_at: datetime
+    metadata: ClusterRunMetadata

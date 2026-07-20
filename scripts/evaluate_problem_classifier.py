@@ -5,7 +5,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -90,11 +90,18 @@ def load_dataset(path: Path) -> list[EvaluationCase]:
     return cases
 
 
-def evaluate(cases: Iterable[EvaluationCase], classifier: ProblemClassifier) -> EvaluationReport:
+def evaluate(
+    cases: Iterable[EvaluationCase],
+    classifier: ProblemClassifier,
+    progress_callback: Callable[[int, int, EvaluationCase], None] | None = None,
+) -> EvaluationReport:
+    cases = list(cases)
     true_positives = true_negatives = false_positives = false_negatives = 0
     errors: list[EvaluationError] = []
 
-    for case in cases:
+    for current, case in enumerate(cases, start=1):
+        if progress_callback is not None:
+            progress_callback(current, len(cases), case)
         result = classifier.classify(case.text)
         if result.is_problem and case.expected_is_problem:
             true_positives += 1
@@ -203,9 +210,27 @@ def main() -> int:
         print(f"Dataset error: {error}", file=sys.stderr)
         return 2
 
+    print(f"Loaded cases: {len(cases)}")
     try:
-        report = evaluate(cases, Qwen3ProblemClassifier())
-    except (ImportError, OSError) as error:
+        classifier = Qwen3ProblemClassifier()
+        print(f"Selected device: {classifier.device_name}")
+        report = evaluate(
+            cases,
+            classifier,
+            progress_callback=lambda current, total, case: print(
+                f"Evaluating {current}/{total}: {case.id}"
+            ),
+        )
+    except ImportError as error:
+        print(
+            f"Unable to import a required dependency (PyTorch or Transformers): {error}",
+            file=sys.stderr,
+        )
+        return 1
+    except RuntimeError as error:
+        print(f"Unable to select a device or initialize CUDA: {error}", file=sys.stderr)
+        return 1
+    except OSError as error:
         print(f"Unable to load Qwen3 locally: {error}", file=sys.stderr)
         return 1
     except ValueError as error:

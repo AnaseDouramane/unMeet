@@ -19,6 +19,12 @@ class DocumentCluster:
     documents: tuple[ClusterableDocument, ...]
 
 
+@dataclass(frozen=True)
+class ClusteringResult:
+    document_count: int
+    clusters: tuple[DocumentCluster, ...]
+
+
 class ClusteringService:
     def __init__(
         self, repository: SourceItemRepository, clusterer: HDBSCANClusterer | None = None
@@ -27,9 +33,12 @@ class ClusteringService:
         self._clusterer = clusterer or HDBSCANClusterer()
 
     def cluster_documents(self, embedding_model: str) -> list[DocumentCluster]:
+        return list(self.cluster_documents_with_summary(embedding_model).clusters)
+
+    def cluster_documents_with_summary(self, embedding_model: str) -> ClusteringResult:
         documents = self._repository.find_all_with_embeddings(embedding_model)
         if not documents:
-            return []
+            return ClusteringResult(document_count=0, clusters=())
 
         embeddings = self._validate_embeddings(documents)
         _, labels = self._clusterer.fit_predict(embeddings)
@@ -41,10 +50,13 @@ class ClusteringService:
                 continue
             clusters.setdefault(cluster_id, []).append(document)
 
-        return [
-            DocumentCluster(cluster_id=cluster_id, documents=tuple(documents))
-            for cluster_id, documents in sorted(clusters.items())
-        ]
+        return ClusteringResult(
+            document_count=len(documents),
+            clusters=tuple(
+                DocumentCluster(cluster_id=cluster_id, documents=tuple(cluster_documents))
+                for cluster_id, cluster_documents in sorted(clusters.items())
+            ),
+        )
 
     @staticmethod
     def _validate_embeddings(documents: list[ClusterableDocument]) -> np.ndarray:

@@ -18,13 +18,27 @@ EXAMPLES = [
 
 
 def main() -> int:
-    classifier = Qwen3ProblemClassifier()
+    try:
+        classifier = Qwen3ProblemClassifier()
+        print(f"selected_device: {classifier.device_name}")
+    except ImportError as error:
+        print(f"Unable to import a required dependency (PyTorch or Transformers): {error}")
+        return 1
+    except RuntimeError as error:
+        print(f"Unable to select a device or initialize CUDA: {error}")
+        return 1
 
     for text in EXAMPLES:
         print(f"\nText: {text}")
         try:
             result = classifier.classify(text)
-        except (ImportError, OSError) as error:
+        except ImportError as error:
+            print(f"Unable to import a required dependency (PyTorch or Transformers): {error}")
+            return 1
+        except RuntimeError as error:
+            print(f"Unable to select a device or initialize CUDA: {error}")
+            return 1
+        except OSError as error:
             print(f"Unable to load Qwen3 locally: {error}")
             print("Check the Transformers installation, network access, and available disk space.")
             return 1
@@ -39,6 +53,8 @@ def main() -> int:
         print(f"confidence: {result.confidence}")
         print(f"reason: {result.reason}")
         print(f"classifier_name: {result.classifier_name}")
+        print(f"model_device: {classifier.model_device_name}")
+        print(f"input_ids_device: {classifier.input_ids_device_name}")
 
     return 0
 

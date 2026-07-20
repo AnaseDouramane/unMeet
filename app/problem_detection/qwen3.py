@@ -16,6 +16,7 @@ class Qwen3ProblemClassifier:
         self,
         model_name: str = DEFAULT_QWEN3_MODEL,
         max_new_tokens: int = 128,
+        device: str | None = None,
     ) -> None:
         if not isinstance(model_name, str) or not model_name.strip():
             raise ValueError("model_name must not be empty")
@@ -23,11 +24,31 @@ class Qwen3ProblemClassifier:
             raise TypeError("max_new_tokens must be an integer")
         if max_new_tokens <= 0:
             raise ValueError("max_new_tokens must be positive")
+        if device not in {None, "cuda", "cpu"}:
+            raise ValueError("device must be None, 'cuda', or 'cpu'")
 
         self.model_name = model_name.strip()
         self.max_new_tokens = max_new_tokens
+        self._device_preference = device
+        self._device_name: str | None = None
         self._tokenizer: Any | None = None
         self._model: Any | None = None
+        self._input_ids_device_name: str | None = None
+
+    @property
+    def device_name(self) -> str:
+        return self._resolve_device_name()
+
+    @property
+    def model_device_name(self) -> str | None:
+        if self._model is None:
+            return None
+        model_device = getattr(self._model, "device", None)
+        return str(model_device) if model_device is not None else None
+
+    @property
+    def input_ids_device_name(self) -> str | None:
+        return self._input_ids_device_name
 
     def classify(self, document_text: str) -> ProblemDetectionResult:
         if not isinstance(document_text, str):
@@ -43,14 +64,35 @@ class Qwen3ProblemClassifier:
 
     def _load_components(self) -> tuple[Any, Any]:
         if self._tokenizer is None or self._model is None:
+            import torch
+
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
+            device = self.device_name
             if self._tokenizer is None:
                 self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             if self._model is None:
-                self._model = AutoModelForCausalLM.from_pretrained(self.model_name)
+                model_kwargs = {}
+                if device == "cuda":
+                    model_kwargs["torch_dtype"] = torch.float16
+                self._model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
+                self._model.to(device)
                 self._model.eval()
         return self._tokenizer, self._model
+
+    def _resolve_device_name(self) -> str:
+        if self._device_name is not None:
+            return self._device_name
+
+        import torch
+
+        if self._device_preference is None:
+            self._device_name = "cuda" if torch.cuda.is_available() else "cpu"
+        elif self._device_preference == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("CUDA was requested but is not available")
+        else:
+            self._device_name = self._device_preference
+        return self._device_name
 
     def _build_prompt(self, tokenizer: Any, document_text: str) -> str:
         messages = [
@@ -59,12 +101,15 @@ class Qwen3ProblemClassifier:
                 "content": (
                     "Classify whether the content itself expresses a real problem, need, or pain point. "
                     "Set is_problem to true only when the text directly, or with strong implicit evidence, "
-                    "expresses at least one of: a concrete difficulty; a lived frustration; a manual, costly, "
-                    "or repetitive task; an unmet need; or an explicit request for a tool or solution. "
+                    "expresses at least one of: a concrete difficulty, frustration, cost, inefficiency, "
+                    "manual or repetitive task, unmet need, or concrete request for a tool or solution. "
                     "Set is_problem to false for news and announcements, product releases, tutorials and "
                     "guides, descriptions of solutions, generic opinions, and technical content without an "
-                    "expressed pain point. Do not infer a problem merely because a product, technology, or "
-                    "solution could satisfy a possible need. If uncertain, set is_problem to false. "
+                    "expressed pain point. Generic preferences, technology comparisons, and broad opinions "
+                    "are not problems. Do not infer a problem merely because a product, technology, or "
+                    "solution could satisfy a possible need, and do not turn abstract advantages such as "
+                    "maintainability or efficiency into an unexpressed pain point. If uncertain, set "
+                    "is_problem to false. "
                     "Examples: \n"
                     "- Content: 'Every week I manually copy invoices into our accounting system; it takes hours.' "
                     "Result: is_problem=true.\n"
@@ -74,6 +119,10 @@ class Qwen3ProblemClassifier:
                     "Result: is_problem=false.\n"
                     "- Content: 'This guide shows how to deploy FastAPI with Docker.' Result: is_problem=false.\n"
                     "- Content: 'We are announcing version 2.0 of our analytics platform.' Result: is_problem=false. "
+                    "- Content: 'Many developers prefer typed languages for large codebases.' "
+                    "Result: is_problem=false.\n"
+                    "- Content: 'FastAPI is simpler than Django for small services.' Result: is_problem=false.\n"
+                    "- Content: 'Rust is a great technology for reliable systems.' Result: is_problem=false. "
                     "Return exactly one JSON object with no prose or extra fields: "
                     '{"is_problem": boolean, "confidence": number between 0 and 1, '
                     '"reason": "short non-empty explanation"}. '
@@ -97,23 +146,27 @@ class Qwen3ProblemClassifier:
             )
 
     def _generate(self, tokenizer: Any, model: Any, prompt: str) -> str:
-        model_inputs = tokenizer(prompt, return_tensors="pt")
-        device = getattr(model, "device", None)
-        if device is not None:
-            if hasattr(model_inputs, "to"):
-                model_inputs = model_inputs.to(device)
-            else:
-                model_inputs = {
-                    key: value.to(device) if hasattr(value, "to") else value
-                    for key, value in model_inputs.items()
-                }
+        import torch
 
-        generated_ids = model.generate(
-            **model_inputs,
-            do_sample=False,
-            max_new_tokens=self.max_new_tokens,
-        )
+        model_inputs = tokenizer(prompt, return_tensors="pt")
+        device = self.device_name
+        if hasattr(model_inputs, "to"):
+            model_inputs = model_inputs.to(device)
+        else:
+            model_inputs = {
+                key: value.to(device) if hasattr(value, "to") else value
+                for key, value in model_inputs.items()
+            }
+
         input_ids = model_inputs["input_ids"]
+        input_ids_device = getattr(input_ids, "device", None)
+        self._input_ids_device_name = str(input_ids_device) if input_ids_device is not None else None
+        with torch.inference_mode():
+            generated_ids = model.generate(
+                **model_inputs,
+                do_sample=False,
+                max_new_tokens=self.max_new_tokens,
+            )
         prompt_length = len(input_ids[0])
         return tokenizer.decode(generated_ids[0][prompt_length:], skip_special_tokens=True).strip()
 

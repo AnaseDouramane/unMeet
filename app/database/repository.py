@@ -14,7 +14,9 @@ from app.database.models import ClusterModel, ClusterRunModel, SourceItemModel
 from app.database.schemas import (
     ClusterRunMetadata,
     PersistedCluster,
+    PersistedClusterDetails,
     PersistedClusterRun,
+    PersistedClusterRunDetails,
     PersistedSourceItem,
 )
 from app.database.session import SessionLocal
@@ -373,12 +375,59 @@ class ClusterRepository:
                 id=run.id,
                 metadata=normalized_metadata,
                 clusters=tuple(self._to_persisted_cluster(model) for model in models),
+                created_at=run.created_at,
             )
             session.commit()
             return result
         except Exception:
             session.rollback()
             raise
+        finally:
+            session.close()
+
+    def find_latest_compatible_run(
+        self,
+        metadata: ClusterRunMetadata,
+        exclude_run_id: int | None = None,
+    ) -> PersistedClusterRunDetails | None:
+        normalized_metadata = self._normalize_metadata(metadata)
+        if exclude_run_id is not None and (
+            isinstance(exclude_run_id, bool) or not isinstance(exclude_run_id, int)
+        ):
+            raise TypeError("exclude_run_id must be an integer or None")
+
+        session = self._session_factory()
+        try:
+            statement = (
+                select(ClusterRunModel)
+                .where(
+                    ClusterRunModel.embedding_model == normalized_metadata.embedding_model,
+                    ClusterRunModel.min_cluster_size == normalized_metadata.min_cluster_size,
+                    ClusterRunModel.min_samples == normalized_metadata.min_samples,
+                    ClusterRunModel.metric == normalized_metadata.metric,
+                )
+                .order_by(ClusterRunModel.created_at.desc(), ClusterRunModel.id.desc())
+            )
+            if exclude_run_id is not None:
+                statement = statement.where(ClusterRunModel.id != exclude_run_id)
+            run = session.scalar(statement)
+            return None if run is None else self._to_persisted_cluster_run_details(run)
+        finally:
+            session.close()
+
+    def get_clusters_for_run(self, run_id: int) -> tuple[PersistedClusterDetails, ...]:
+        if isinstance(run_id, bool) or not isinstance(run_id, int):
+            raise TypeError("run_id must be an integer")
+
+        session = self._session_factory()
+        try:
+            statement = (
+                select(ClusterModel)
+                .where(ClusterModel.run_id == run_id)
+                .order_by(ClusterModel.local_cluster_id, ClusterModel.id)
+            )
+            models = session.scalars(statement).all()
+            return tuple(self._to_persisted_cluster_details(model) for model in models)
         finally:
             session.close()
 
@@ -466,6 +515,37 @@ class ClusterRepository:
             id=model.id,
             run_id=model.run_id,
             local_cluster_id=model.local_cluster_id,
+        )
+
+    @staticmethod
+    def _to_persisted_cluster_details(model: ClusterModel) -> PersistedClusterDetails:
+        return PersistedClusterDetails(
+            id=model.id,
+            run_id=model.run_id,
+            local_cluster_id=model.local_cluster_id,
+            label=model.label,
+            keywords=tuple(model.keywords),
+            centroid=tuple(float(value) for value in model.centroid),
+            document_count=model.document_count,
+        )
+
+    @classmethod
+    def _to_persisted_cluster_run_details(
+        cls, model: ClusterRunModel
+    ) -> PersistedClusterRunDetails:
+        if model.created_at is None:
+            raise ValueError("cluster run created_at must be populated")
+        return PersistedClusterRunDetails(
+            id=model.id,
+            created_at=model.created_at,
+            metadata=cls._normalize_metadata(
+                ClusterRunMetadata(
+                    embedding_model=model.embedding_model,
+                    min_cluster_size=model.min_cluster_size,
+                    min_samples=model.min_samples,
+                    metric=model.metric,
+                )
+            ),
         )
 
     @staticmethod

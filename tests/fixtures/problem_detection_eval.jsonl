@@ -30,3 +30,6 @@
 {"id":"case-030","text":"A comparison of REST and GraphQL trade-offs for public APIs.","expected_is_problem":false,"category":"technical_discussion"}
 {"id":"case-031","text":"The new feature helps teams organize project documents in folders.","expected_is_problem":false,"category":"solution_description"}
 {"id":"case-032","text":"Many developers prefer typed languages for large codebases.","expected_is_problem":false,"category":"generic_opinion"}
+{"id":"case-033","text":"FastAPI is simpler than Django for small services.","expected_is_problem":false,"category":"technical_discussion"}
+{"id":"case-034","text":"Rust is a great technology for reliable systems.","expected_is_problem":false,"category":"generic_opinion"}
+{"id":"case-035","text":"Type systems improve maintainability in large applications.","expected_is_problem":false,"category":"technical_discussion"}

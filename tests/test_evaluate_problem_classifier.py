@@ -1,8 +1,10 @@
+import sys
 from pathlib import Path
 
 import pytest
 
 from app.problem_detection.schemas import ProblemDetectionResult
+from scripts import evaluate_problem_classifier
 from scripts.evaluate_problem_classifier import (
     EvaluationCase,
     evaluate,
@@ -118,3 +120,69 @@ def test_evaluate_handles_zero_division_metrics() -> None:
     assert report.f1_score == 0.0
     assert report.errors == ()
     assert "Errors:\n  None" in format_report(report)
+
+
+def test_main_runs_evaluation_and_reports_progress_without_loading_qwen(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    dataset = tmp_path / "dataset.jsonl"
+    dataset.write_text(
+        '{"id":"case-001","text":"Need a tool","expected_is_problem":true,'
+        '"category":"request_for_tool"}\n'
+        '{"id":"case-002","text":"Product news","expected_is_problem":false,"category":"news"}\n',
+        encoding="utf-8",
+    )
+    fake_classifier = FakeClassifier(
+        {"Need a tool": _result(True), "Product news": _result(False)}
+    )
+    fake_classifier.device_name = "cuda"
+    monkeypatch.setattr(evaluate_problem_classifier, "Qwen3ProblemClassifier", lambda: fake_classifier)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["evaluate_problem_classifier", "--dataset", str(dataset)],
+    )
+
+    assert evaluate_problem_classifier.main() == 0
+
+    output = capsys.readouterr().out
+    assert "Loaded cases: 2" in output
+    assert "Selected device: cuda" in output
+    assert "Evaluating 1/2: case-001" in output
+    assert "Evaluating 2/2: case-002" in output
+    assert "Accuracy: 1.000" in output
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (ImportError("No module named 'torch'"), "Unable to import a required dependency"),
+        (RuntimeError("CUDA was requested but is not available"), "Unable to select a device"),
+    ],
+)
+def test_evaluation_entry_point_handles_dependency_and_device_errors(
+    monkeypatch, tmp_path: Path, capsys, error, message
+) -> None:
+    dataset = tmp_path / "dataset.jsonl"
+    dataset.write_text(
+        '{"id":"case-001","text":"Product news","expected_is_problem":false,"category":"news"}\n',
+        encoding="utf-8",
+    )
+
+    class FailingDeviceClassifier:
+        @property
+        def device_name(self) -> str:
+            raise error
+
+    monkeypatch.setattr(
+        evaluate_problem_classifier,
+        "Qwen3ProblemClassifier",
+        FailingDeviceClassifier,
+    )
+    monkeypatch.setattr(sys, "argv", ["evaluate_problem_classifier", "--dataset", str(dataset)])
+
+    assert evaluate_problem_classifier.main() == 1
+
+    captured = capsys.readouterr()
+    assert message in captured.err
+    assert str(error) in captured.err
