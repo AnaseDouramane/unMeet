@@ -1,8 +1,12 @@
+import inspect
 from datetime import datetime, timezone
+
+import pytest
 
 from app.ingestion.schemas import SourceItem
 from app.problem_detection.schemas import ProblemDetectionResult
 from app.services.pipeline import Pipeline
+from app.services.preprocessing import PreprocessingService
 
 
 class FakeHackerNewsConnector:
@@ -86,14 +90,25 @@ def _result(is_problem: bool) -> ProblemDetectionResult:
     )
 
 
-def test_pipeline_returns_problem_documents_and_passes_embeddings(monkeypatch) -> None:
-    monkeypatch.setattr("app.services.pipeline.HackerNewsConnector", FakeHackerNewsConnector)
+def test_pipeline_requires_injected_operational_dependencies() -> None:
+    with pytest.raises(TypeError):
+        Pipeline(settings=type("SettingsStub", (), {"environment": "test"})())
 
+    source = inspect.getsource(Pipeline.__init__)
+    assert "HackerNewsConnector(" not in source
+    assert "PreprocessingService(" not in source
+    assert "SourceItemRepository(" not in source
+    assert "EmbeddingService(" not in source
+
+
+def test_pipeline_returns_problem_documents_and_passes_embeddings() -> None:
     repository = FakeRepository()
     embedding_service = FakeEmbeddingService()
     problem_detection_service = FakeProblemDetectionService([_result(True)] * 10)
     pipeline = Pipeline(
         settings=type("SettingsStub", (), {"environment": "test"})(),
+        connector=FakeHackerNewsConnector(),
+        preprocessing_service=PreprocessingService(),
         repository=repository,
         embedding_service=embedding_service,
         problem_detection_service=problem_detection_service,
@@ -122,13 +137,14 @@ def test_pipeline_returns_problem_documents_and_passes_embeddings(monkeypatch) -
     assert prepared_documents[0].source_item.body == "<p>Body 0</p>"
     assert repository.saved[0][0].external_id == "0"
     assert repository.saved[0][1].dedup_hash == prepared_documents[0].dedup_hash
+    assert pipeline.last_run_stats is not None
+    assert pipeline.last_run_stats.acquired_count == 10
+    assert pipeline.last_run_stats.problem_count == 10
+    assert pipeline.last_run_stats.non_problem_count == 0
+    assert pipeline.last_run_stats.embedding_count == 10
 
 
-def test_pipeline_persists_non_problems_without_embedding_and_preserves_problem_order(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr("app.services.pipeline.HackerNewsConnector", FakeMixedConnector)
-
+def test_pipeline_persists_non_problems_without_embedding_and_preserves_problem_order() -> None:
     repository = FakeRepository()
     embedding_service = FakeEmbeddingService()
     problem_detection_service = FakeProblemDetectionService(
@@ -136,6 +152,8 @@ def test_pipeline_persists_non_problems_without_embedding_and_preserves_problem_
     )
     pipeline = Pipeline(
         settings=type("SettingsStub", (), {"environment": "test"})(),
+        connector=FakeMixedConnector(),
+        preprocessing_service=PreprocessingService(),
         repository=repository,
         embedding_service=embedding_service,
         problem_detection_service=problem_detection_service,
@@ -154,3 +172,37 @@ def test_pipeline_persists_non_problems_without_embedding_and_preserves_problem_
     assert repository.saved[1][3] is None
     assert repository.saved[1][4].is_problem is False
     assert [saved[4].is_problem for saved in repository.saved] == [True, False, True]
+    assert pipeline.last_run_stats is not None
+    assert pipeline.last_run_stats.acquired_count == 3
+    assert pipeline.last_run_stats.problem_count == 2
+    assert pipeline.last_run_stats.non_problem_count == 1
+    assert pipeline.last_run_stats.embedding_count == 2
+
+
+def test_pipeline_clears_previous_run_statistics_when_a_later_run_fails() -> None:
+    class FailingOnSecondFetchConnector:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def fetch(self):
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("connector failed")
+            yield _source_item(1)
+
+    pipeline = Pipeline(
+        settings=type("SettingsStub", (), {"environment": "test"})(),
+        connector=FailingOnSecondFetchConnector(),
+        preprocessing_service=PreprocessingService(),
+        repository=FakeRepository(),
+        embedding_service=FakeEmbeddingService(),
+        problem_detection_service=FakeProblemDetectionService([_result(True)]),
+    )
+
+    pipeline.run()
+    assert pipeline.last_run_stats is not None
+
+    with pytest.raises(RuntimeError, match="connector failed"):
+        pipeline.run()
+
+    assert pipeline.last_run_stats is None
