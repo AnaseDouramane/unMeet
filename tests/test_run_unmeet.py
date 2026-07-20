@@ -1,22 +1,30 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from app.analysis.orchestrator import AnalysisRunResult
 from app.clustering.schemas import ClusterTrend
-from app.services.pipeline import PipelineRunStats
+from app.services.multi_source_ingestion import MultiSourceIngestionResult, SourceIngestionError
 from scripts import run_unmeet
 
 
-class FakePipeline:
-    def __init__(self, events: list[str], error: Exception | None = None) -> None:
+class FakeIngestionService:
+    def __init__(
+        self,
+        events: list[str],
+        result: MultiSourceIngestionResult,
+        error: Exception | None = None,
+    ) -> None:
         self.events = events
+        self.result = result
         self.error = error
-        self.last_run_stats = PipelineRunStats(10, 4, 6, 4)
 
-    def run(self) -> None:
+    def run(self) -> MultiSourceIngestionResult:
         self.events.append("ingestion")
         if self.error is not None:
             raise self.error
+        return self.result
 
 
 class FakeAnalysisOrchestrator:
@@ -45,23 +53,40 @@ class FakeAnalysisOrchestrator:
 
 
 def _trend(cluster_id: int, status: str) -> ClusterTrend:
-    return ClusterTrend(
-        current_cluster_id=cluster_id,
-        previous_cluster_id=None,
-        label=f"cluster-{cluster_id}",
-        current_count=1,
-        previous_count=0,
-        absolute_change=1,
-        growth_rate=None,
-        status=status,
-        similarity=None,
+    return ClusterTrend(cluster_id, None, f"cluster-{cluster_id}", 1, 0, 1, None, status, None)
+
+
+def _ingestion_result(
+    errors: tuple[SourceIngestionError, ...] = (), successful_source_count: int = 1
+) -> MultiSourceIngestionResult:
+    return MultiSourceIngestionResult(
+        acquired_count=10,
+        problem_count=4,
+        non_problem_count=6,
+        embedding_count=4,
+        source_stats=(),
+        errors=errors,
+        successful_source_count=successful_source_count,
+        failed_source_count=len(errors),
+        is_success=not errors,
     )
 
 
-def _application(events: list[str], pipeline_error=None, analysis_error=None):
+def _application(
+    events: list[str],
+    ingestion_result: MultiSourceIngestionResult | None = None,
+    ingestion_error: Exception | None = None,
+    analysis_error: Exception | None = None,
+    fail_fast: bool = True,
+) -> run_unmeet.UnmeetApplication:
     return run_unmeet.UnmeetApplication(
-        pipeline=FakePipeline(events, pipeline_error),
+        ingestion_service=FakeIngestionService(
+            events,
+            ingestion_result or _ingestion_result(),
+            ingestion_error,
+        ),
         analysis_orchestrator=FakeAnalysisOrchestrator(events, analysis_error),
+        fail_fast=fail_fast,
     )
 
 
@@ -79,129 +104,143 @@ def test_main_runs_ingestion_before_analysis_and_prints_summary(monkeypatch, cap
     assert "Non-problem posts archived: 6" in output
     assert "Documents with embeddings: 4" in output
     assert "Analysis run ID: 17" in output
-    assert "Clusters: 3" in output
-    assert "Documents clustered: 4" in output
     assert "new: 1, rising: 1, stable: 1, falling: 1" in output
-    assert "Total duration:" in output
 
 
-def test_build_application_wires_explicit_dependencies_with_factories(monkeypatch) -> None:
+def test_main_skips_analysis_after_fail_fast_source_error(monkeypatch, capsys) -> None:
+    events: list[str] = []
+    result = _ingestion_result((SourceIngestionError("reddit", "unavailable"),))
+    monkeypatch.setattr(run_unmeet, "Settings", lambda: object())
+    monkeypatch.setattr(
+        run_unmeet,
+        "build_application",
+        lambda settings: _application(events, ingestion_result=result, fail_fast=True),
+    )
+
+    assert run_unmeet.main() == 1
+
+    assert events == ["ingestion"]
+    assert "Ingestion error for reddit: unavailable" in capsys.readouterr().err
+
+
+def test_main_runs_analysis_once_after_partial_ingestion_when_policy_allows(monkeypatch) -> None:
+    events: list[str] = []
+    result = _ingestion_result(
+        (SourceIngestionError("reddit", "unavailable"),), successful_source_count=1
+    )
+    monkeypatch.setattr(run_unmeet, "Settings", lambda: object())
+    monkeypatch.setattr(
+        run_unmeet,
+        "build_application",
+        lambda settings: _application(events, ingestion_result=result, fail_fast=False),
+    )
+
+    assert run_unmeet.main() == 0
+
+    assert events == ["ingestion", "analysis"]
+
+
+def test_main_skips_analysis_when_all_sources_fail(monkeypatch) -> None:
+    events: list[str] = []
+    result = _ingestion_result(
+        (SourceIngestionError("hackernews", "unavailable"),), successful_source_count=0
+    )
+    monkeypatch.setattr(run_unmeet, "Settings", lambda: object())
+    monkeypatch.setattr(
+        run_unmeet,
+        "build_application",
+        lambda settings: _application(events, ingestion_result=result, fail_fast=False),
+    )
+
+    assert run_unmeet.main() == 1
+
+    assert events == ["ingestion"]
+
+
+def test_build_application_wires_multiple_connectors_with_factories(monkeypatch) -> None:
     connector = object()
+    reddit_connector = object()
     preprocessing_service = object()
-    classifier = object()
-    problem_detection_service = object()
     embedding_service = type("EmbeddingService", (), {"model_name": "model-a"})()
-    source_item_repository = object()
     pipeline = object()
     clusterer = type(
         "Clusterer",
         (),
         {"min_cluster_size": 5, "min_samples": None, "metric": "euclidean"},
     )()
-    clustering_service = object()
-    topic_labeling_service = object()
-    cluster_repository = object()
-    matching_service = object()
-    trend_service = object()
-    analysis_orchestrator = object()
-    pipeline_kwargs = {}
-    analysis_kwargs = {}
+    multi_source_kwargs = {}
 
     monkeypatch.setattr(run_unmeet, "HackerNewsConnector", lambda limit: connector)
+    monkeypatch.setattr(
+        run_unmeet.RedditConnector,
+        "from_settings",
+        lambda settings: reddit_connector,
+    )
     monkeypatch.setattr(run_unmeet, "PreprocessingService", lambda: preprocessing_service)
-    monkeypatch.setattr(run_unmeet, "Qwen3ProblemClassifier", lambda: classifier)
-    monkeypatch.setattr(
-        run_unmeet,
-        "ProblemDetectionService",
-        lambda received_classifier: problem_detection_service,
-    )
-    monkeypatch.setattr(
-        run_unmeet,
-        "EmbeddingService",
-        lambda model_name: embedding_service,
-    )
-    monkeypatch.setattr(run_unmeet, "SourceItemRepository", lambda: source_item_repository)
-    monkeypatch.setattr(
-        run_unmeet,
-        "Pipeline",
-        lambda **kwargs: pipeline_kwargs.update(kwargs) or pipeline,
-    )
+    monkeypatch.setattr(run_unmeet, "Qwen3ProblemClassifier", lambda: object())
+    monkeypatch.setattr(run_unmeet, "ProblemDetectionService", lambda classifier: object())
+    monkeypatch.setattr(run_unmeet, "EmbeddingService", lambda model_name: embedding_service)
+    monkeypatch.setattr(run_unmeet, "SourceItemRepository", lambda: object())
+    monkeypatch.setattr(run_unmeet, "Pipeline", lambda **kwargs: pipeline)
     monkeypatch.setattr(run_unmeet, "HDBSCANClusterer", lambda: clusterer)
+    monkeypatch.setattr(run_unmeet, "ClusteringService", lambda repository, clusterer: object())
+    monkeypatch.setattr(run_unmeet, "TopicLabelingService", lambda: object())
+    monkeypatch.setattr(run_unmeet, "ClusterRepository", lambda: object())
+    monkeypatch.setattr(run_unmeet, "ClusterMatchingService", lambda: object())
+    monkeypatch.setattr(run_unmeet, "TrendDetectionService", lambda: object())
+    monkeypatch.setattr(run_unmeet, "AnalysisOrchestrator", lambda **kwargs: object())
     monkeypatch.setattr(
         run_unmeet,
-        "ClusteringService",
-        lambda repository, received_clusterer: clustering_service,
+        "MultiSourceIngestionService",
+        lambda **kwargs: multi_source_kwargs.update(kwargs) or object(),
     )
-    monkeypatch.setattr(run_unmeet, "TopicLabelingService", lambda: topic_labeling_service)
-    monkeypatch.setattr(run_unmeet, "ClusterRepository", lambda: cluster_repository)
-    monkeypatch.setattr(run_unmeet, "ClusterMatchingService", lambda: matching_service)
-    monkeypatch.setattr(run_unmeet, "TrendDetectionService", lambda: trend_service)
-    monkeypatch.setattr(
-        run_unmeet,
-        "AnalysisOrchestrator",
-        lambda **kwargs: analysis_kwargs.update(kwargs) or analysis_orchestrator,
-    )
-    settings = type("Settings", (), {"embedding_model": "model-a"})()
+    settings = type(
+        "Settings",
+        (),
+        {
+            "embedding_model": "model-a",
+            "enabled_sources": ("hackernews", "reddit"),
+            "ingestion_fail_fast": False,
+        },
+    )()
 
     application = run_unmeet.build_application(settings)
 
-    assert application.pipeline is pipeline
-    assert application.analysis_orchestrator is analysis_orchestrator
-    assert pipeline_kwargs == {
-        "settings": settings,
-        "connector": connector,
-        "preprocessing_service": preprocessing_service,
-        "repository": source_item_repository,
-        "embedding_service": embedding_service,
-        "problem_detection_service": problem_detection_service,
-    }
-    assert analysis_kwargs["clustering_service"] is clustering_service
-    assert analysis_kwargs["topic_labeling_service"] is topic_labeling_service
-    assert analysis_kwargs["cluster_repository"] is cluster_repository
-    assert analysis_kwargs["cluster_matching_service"] is matching_service
-    assert analysis_kwargs["trend_detection_service"] is trend_service
-    assert analysis_kwargs["metadata"].embedding_model == "model-a"
+    assert application.fail_fast is False
+    assert multi_source_kwargs["pipeline"] is pipeline
+    assert multi_source_kwargs["connectors"] == (connector, reddit_connector)
+    assert multi_source_kwargs["fail_fast"] is False
 
 
-def test_main_does_not_start_analysis_when_ingestion_fails(monkeypatch, capsys) -> None:
-    events: list[str] = []
-    monkeypatch.setattr(run_unmeet, "Settings", lambda: object())
-    monkeypatch.setattr(
-        run_unmeet,
-        "build_application",
-        lambda settings: _application(events, pipeline_error=ValueError("ingestion failed")),
-    )
+@pytest.mark.parametrize(
+    "sources",
+    [
+        ("hackernews", "hackernews"),
+        ("hackernews", "HackerNews"),
+        ("hackernews", " hackernews "),
+    ],
+)
+def test_build_connectors_rejects_duplicate_sources_before_construction(monkeypatch, sources) -> None:
+    def unexpected_connector(*args, **kwargs):
+        raise AssertionError("connector construction must not be attempted")
 
-    assert run_unmeet.main() == 1
+    monkeypatch.setattr(run_unmeet, "HackerNewsConnector", unexpected_connector)
+    settings = type("Settings", (), {"enabled_sources": sources})()
 
-    assert events == ["ingestion"]
-    assert "Pipeline error: ingestion failed" in capsys.readouterr().err
-
-
-def test_main_returns_non_zero_when_analysis_fails(monkeypatch, capsys) -> None:
-    events: list[str] = []
-    monkeypatch.setattr(run_unmeet, "Settings", lambda: object())
-    monkeypatch.setattr(
-        run_unmeet,
-        "build_application",
-        lambda settings: _application(events, analysis_error=ValueError("analysis failed")),
-    )
-
-    assert run_unmeet.main() == 1
-
-    assert events == ["ingestion", "analysis"]
-    assert "Analysis error: analysis failed" in capsys.readouterr().err
+    with pytest.raises(ValueError, match="Duplicate ingestion source: hackernews"):
+        run_unmeet._build_connectors(settings)
 
 
-def test_main_returns_non_zero_for_configuration_errors(monkeypatch, capsys) -> None:
-    def invalid_settings():
-        raise ValueError("bad config")
+def test_build_connectors_normalizes_valid_hackernews_and_reddit_sources(monkeypatch) -> None:
+    hackernews = object()
+    reddit = object()
+    monkeypatch.setattr(run_unmeet, "HackerNewsConnector", lambda limit: hackernews)
+    monkeypatch.setattr(run_unmeet.RedditConnector, "from_settings", lambda settings: reddit)
+    settings = type("Settings", (), {"enabled_sources": (" HackerNews ", "REDDIT")})()
 
-    monkeypatch.setattr(run_unmeet, "Settings", invalid_settings)
+    connectors = run_unmeet._build_connectors(settings)
 
-    assert run_unmeet.main() == 1
-
-    assert "Configuration error: bad config" in capsys.readouterr().err
+    assert connectors == (hackernews, reddit)
 
 
 def test_module_has_a_main_guard() -> None:

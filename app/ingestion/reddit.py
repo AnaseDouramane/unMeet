@@ -65,6 +65,7 @@ class RedditHttpClient:
 
 
 class RedditConnector(SourceConnector):
+    source = "reddit"
     _SUPPORTED_SORTS = {"new", "hot"}
 
     def __init__(

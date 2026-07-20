@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from time import perf_counter
 
@@ -18,20 +19,26 @@ from app.database.repository import ClusterRepository, SourceItemRepository
 from app.database.schemas import ClusterRunMetadata
 from app.embeddings.embedding_service import EmbeddingService
 from app.ingestion.hackernews import HackerNewsConnector
+from app.ingestion.reddit import RedditConnector
 from app.problem_detection.qwen3 import Qwen3ProblemClassifier
 from app.problem_detection.service import ProblemDetectionService
-from app.services.pipeline import Pipeline, PipelineRunStats
+from app.services.pipeline import Pipeline
+from app.services.multi_source_ingestion import (
+    MultiSourceIngestionResult,
+    MultiSourceIngestionService,
+)
 from app.services.preprocessing import PreprocessingService
 
 
 @dataclass(frozen=True)
 class UnmeetApplication:
-    pipeline: Pipeline
+    ingestion_service: MultiSourceIngestionService
     analysis_orchestrator: AnalysisOrchestrator
+    fail_fast: bool
 
 
 def build_application(settings: Settings) -> UnmeetApplication:
-    connector = HackerNewsConnector(limit=10)
+    connectors = _build_connectors(settings)
     preprocessing_service = PreprocessingService()
     classifier = Qwen3ProblemClassifier()
     problem_detection_service = ProblemDetectionService(classifier)
@@ -39,7 +46,7 @@ def build_application(settings: Settings) -> UnmeetApplication:
     source_item_repository = SourceItemRepository()
     pipeline = Pipeline(
         settings=settings,
-        connector=connector,
+        connector=connectors[0],
         preprocessing_service=preprocessing_service,
         repository=source_item_repository,
         embedding_service=embedding_service,
@@ -65,7 +72,46 @@ def build_application(settings: Settings) -> UnmeetApplication:
             metric=clusterer.metric,
         ),
     )
-    return UnmeetApplication(pipeline=pipeline, analysis_orchestrator=analysis_orchestrator)
+    return UnmeetApplication(
+        ingestion_service=MultiSourceIngestionService(
+            pipeline=pipeline,
+            connectors=connectors,
+            fail_fast=settings.ingestion_fail_fast,
+        ),
+        analysis_orchestrator=analysis_orchestrator,
+        fail_fast=settings.ingestion_fail_fast,
+    )
+
+
+def _build_connectors(settings: Settings) -> tuple[HackerNewsConnector | RedditConnector, ...]:
+    connectors: list[HackerNewsConnector | RedditConnector] = []
+    for source in _normalize_enabled_sources(settings.enabled_sources):
+        if source == "hackernews":
+            connectors.append(HackerNewsConnector(limit=10))
+        elif source == "reddit":
+            connectors.append(RedditConnector.from_settings(settings))
+        else:
+            raise ValueError(f"Unsupported ingestion source: {source}")
+    if not connectors:
+        raise ValueError("At least one ingestion source must be enabled")
+    return tuple(connectors)
+
+
+def _normalize_enabled_sources(sources: Sequence[str]) -> tuple[str, ...]:
+    if isinstance(sources, (str, bytes)):
+        raise TypeError("enabled_sources must be a sequence of source names")
+
+    normalized_sources: list[str] = []
+    seen_sources: set[str] = set()
+    for source in sources:
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError("enabled source names must be non-empty strings")
+        normalized_source = source.strip().lower()
+        if normalized_source in seen_sources:
+            raise ValueError(f"Duplicate ingestion source: {normalized_source}")
+        seen_sources.add(normalized_source)
+        normalized_sources.append(normalized_source)
+    return tuple(normalized_sources)
 
 
 def main() -> int:
@@ -84,7 +130,7 @@ def main() -> int:
         return 1
 
     try:
-        application.pipeline.run()
+        ingestion_result = application.ingestion_service.run()
     except SQLAlchemyError as error:
         print(f"Database error during ingestion: {error}", file=sys.stderr)
         return 1
@@ -93,6 +139,14 @@ def main() -> int:
         return 1
     except Exception as error:
         print(f"Pipeline error: {error}", file=sys.stderr)
+        return 1
+
+    for error in ingestion_result.errors:
+        print(f"Ingestion error for {error.source}: {error.message}", file=sys.stderr)
+    if (application.fail_fast and ingestion_result.errors) or (
+        ingestion_result.successful_source_count == 0
+    ):
+        print("Ingestion failed before analysis", file=sys.stderr)
         return 1
 
     try:
@@ -107,23 +161,21 @@ def main() -> int:
         print(f"Analysis error: {error}", file=sys.stderr)
         return 1
 
-    stats = application.pipeline.last_run_stats
-    if stats is None:
-        print("Pipeline error: ingestion completed without run statistics", file=sys.stderr)
-        return 1
-    print(_format_summary(stats, analysis_result, perf_counter() - started_at))
+    print(_format_summary(ingestion_result, analysis_result, perf_counter() - started_at))
     return 0
 
 
-def _format_summary(stats: PipelineRunStats, analysis_result, duration_seconds: float) -> str:
+def _format_summary(
+    ingestion_result: MultiSourceIngestionResult, analysis_result, duration_seconds: float
+) -> str:
     trend_counts = Counter(trend.status for trend in analysis_result.trend)
     return "\n".join(
         [
             "unMeet run complete",
-            f"Posts acquired: {stats.acquired_count}",
-            f"Problems identified: {stats.problem_count}",
-            f"Non-problem posts archived: {stats.non_problem_count}",
-            f"Documents with embeddings: {stats.embedding_count}",
+            f"Posts acquired: {ingestion_result.acquired_count}",
+            f"Problems identified: {ingestion_result.problem_count}",
+            f"Non-problem posts archived: {ingestion_result.non_problem_count}",
+            f"Documents with embeddings: {ingestion_result.embedding_count}",
             f"Analysis run ID: {analysis_result.run_id}",
             f"Clusters: {analysis_result.cluster_count}",
             f"Documents clustered: {analysis_result.document_count}",

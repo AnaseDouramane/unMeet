@@ -8,6 +8,7 @@ from app.ingestion.schemas import SourceItem
 
 
 class HackerNewsConnector(SourceConnector):
+    source = "hackernews"
     base_url = "https://hacker-news.firebaseio.com/v0"
 
     def __init__(

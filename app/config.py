@@ -10,6 +10,18 @@ def _reddit_subreddits() -> tuple[str, ...]:
     )
 
 
+def _enabled_sources() -> tuple[str, ...]:
+    return tuple(
+        source.strip().lower()
+        for source in os.getenv("INGESTION_SOURCES", "hackernews").split(",")
+        if source.strip()
+    )
+
+
+def _ingestion_fail_fast() -> bool:
+    return os.getenv("INGESTION_FAIL_FAST", "true").strip().lower() in {"1", "true", "yes"}
+
+
 @dataclass(frozen=True)
 class Settings:
     environment: str = os.getenv("UNMEET_ENV", "development")
@@ -24,6 +36,8 @@ class Settings:
     reddit_subreddits: tuple[str, ...] = _reddit_subreddits()
     reddit_limit: int = int(os.getenv("REDDIT_LIMIT", "100"))
     reddit_sort: str = os.getenv("REDDIT_SORT", "new")
+    enabled_sources: tuple[str, ...] = _enabled_sources()
+    ingestion_fail_fast: bool = _ingestion_fail_fast()
     github_token: str | None = os.getenv("GITHUB_TOKEN")
     embedding_model: str = os.getenv(
         "EMBEDDING_MODEL",

@@ -4,6 +4,7 @@ from app.config import Settings
 from app.database.repository import SourceItemRepository
 from app.embeddings.embedding_service import EmbeddingService
 from app.ingestion.hackernews import HackerNewsConnector
+from app.ingestion.base import SourceConnector
 from app.preprocessing.schemas import PreparedDocument
 from app.problem_detection.service import ProblemDetectionService
 from app.services.preprocessing import PreprocessingService
@@ -35,13 +36,14 @@ class Pipeline:
         self.problem_detection_service = problem_detection_service
         self.last_run_stats: PipelineRunStats | None = None
 
-    def run(self) -> list[PreparedDocument]:
+    def run(self, connector: SourceConnector | None = None) -> list[PreparedDocument]:
         self.last_run_stats = None
 
         accepted_documents: list[PreparedDocument] = []
         acquired_count = 0
         non_problem_count = 0
-        for source_item in self.connector.fetch():
+        active_connector = connector or self.connector
+        for source_item in active_connector.fetch():
             acquired_count += 1
             prepared_document = self.preprocessing_service.prepare(source_item)
             detection_result = self.problem_detection_service.detect(prepared_document)
