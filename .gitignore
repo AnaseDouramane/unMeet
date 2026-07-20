@@ -23,6 +23,13 @@ dist/
 .dist/*
 !.dist/.gitkeep
 
+# Frontend
+frontend/node_modules/
+frontend/node_modules.partial-install/
+frontend/.next/
+frontend/.env.local
+frontend/coverage/
+
 # Data and models
 data/
 models/
