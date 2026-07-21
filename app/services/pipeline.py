@@ -16,6 +16,7 @@ class PipelineRunStats:
     problem_count: int
     non_problem_count: int
     embedding_count: int
+    classification_error_count: int
 
 
 class Pipeline:
@@ -42,11 +43,16 @@ class Pipeline:
         accepted_documents: list[PreparedDocument] = []
         acquired_count = 0
         non_problem_count = 0
+        classification_error_count = 0
         active_connector = connector or self.connector
         for source_item in active_connector.fetch():
             acquired_count += 1
             prepared_document = self.preprocessing_service.prepare(source_item)
             detection_result = self.problem_detection_service.detect(prepared_document)
+            if getattr(
+                self.problem_detection_service, "last_detection_was_malformed_output", False
+            ):
+                classification_error_count += 1
             if detection_result.is_problem:
                 embedding = self.embedding_service.encode(prepared_document.document_text)
                 self.repository.save(
@@ -70,5 +76,6 @@ class Pipeline:
             problem_count=len(accepted_documents),
             non_problem_count=non_problem_count,
             embedding_count=len(accepted_documents),
+            classification_error_count=classification_error_count,
         )
         return accepted_documents

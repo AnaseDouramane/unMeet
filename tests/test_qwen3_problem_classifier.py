@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.problem_detection.qwen3 import DEFAULT_QWEN3_MODEL, Qwen3ProblemClassifier
+from app.problem_detection.schemas import MalformedClassifierOutputError
 
 
 class FakeTokenizer:
@@ -203,12 +204,22 @@ def test_qwen3_classifier_sends_the_complete_prompt_contract_to_the_tokenizer(mo
     assert "tutorials and guides" in prompt
     assert "descriptions of solutions" in prompt
     assert "If uncertain, set is_problem to false" in prompt
-    assert "Do not infer a problem merely because a product, technology, or solution could satisfy" in prompt
-    assert "Generic preferences, technology comparisons, and broad opinions are not problems" in prompt
+    assert (
+        "Do not infer a problem merely because a product, technology, or solution could satisfy"
+        in prompt
+    )
+    assert (
+        "Generic preferences, technology comparisons, and broad opinions are not problems" in prompt
+    )
     assert "maintainability or efficiency into an unexpressed pain point" in prompt
 
-    assert "Every week I manually copy invoices into our accounting system; it takes hours." in prompt
-    assert "Is there a tool that alerts me when a customer's subscription is about to expire?" in prompt
+    assert (
+        "Every week I manually copy invoices into our accounting system; it takes hours." in prompt
+    )
+    assert (
+        "Is there a tool that alerts me when a customer's subscription is about to expire?"
+        in prompt
+    )
     assert "OpenAI released a new model with improved reasoning capabilities." in prompt
     assert "This guide shows how to deploy FastAPI with Docker." in prompt
     assert "We are announcing version 2.0 of our analytics platform." in prompt
@@ -279,14 +290,20 @@ def test_qwen3_classifier_falls_back_when_the_template_does_not_support_non_thin
     [
         ("not JSON", "malformed JSON"),
         ('{"is_problem": true, "confidence": 0.9}', "exactly is_problem"),
+        (
+            '{"is_problem": true, "confidence": 0.9, "reason": "Valid", "extra": true}',
+            "exactly is_problem",
+        ),
+        ('{"is_problem": "true", "confidence": 0.9, "reason": "Wrong type"}', "is_problem"),
+        ('{"is_problem": true, "confidence": "0.9", "reason": "Wrong type"}', "confidence"),
+        ('{"is_problem": true, "confidence": -0.1, "reason": "Too low"}', "between 0 and 1"),
         ('{"is_problem": true, "confidence": 1.1, "reason": "Too high"}', "between 0 and 1"),
+        ('{"is_problem": true, "confidence": NaN, "reason": "Not finite"}', "finite"),
+        ('{"is_problem": true, "confidence": Infinity, "reason": "Not finite"}', "finite"),
+        ('{"is_problem": true, "confidence": 0.9, "reason": "   "}', "reason"),
         (
             'Answer: {"is_problem": true, "confidence": 0.9, "reason": "Extra prose"}',
             "malformed JSON",
-        ),
-        (
-            '{"is_problem": true, "confidence": 0.9, "reason": "Extra field", "other": 1}',
-            "exactly is_problem",
         ),
         (
             '{"is_problem": true, "confidence": 0.9, "confidence": 0.8, "reason": "Duplicate"}',
@@ -299,7 +316,14 @@ def test_qwen3_classifier_rejects_malformed_or_ambiguous_output(
 ) -> None:
     classifier, _, _, _, _, _ = _classifier(monkeypatch, output)
 
-    with pytest.raises(ValueError, match=error):
+    with pytest.raises(MalformedClassifierOutputError, match=error):
+        classifier.classify("Please classify this content")
+
+
+def test_qwen3_classifier_marks_invalid_json_with_a_specific_error(monkeypatch) -> None:
+    classifier, _, _, _, _, _ = _classifier(monkeypatch, "not JSON")
+
+    with pytest.raises(MalformedClassifierOutputError, match="malformed JSON"):
         classifier.classify("Please classify this content")
 
 

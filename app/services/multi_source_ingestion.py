@@ -21,6 +21,7 @@ class SourceIngestionStats:
     problem_count: int
     non_problem_count: int
     embedding_count: int
+    classification_error_count: int
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class MultiSourceIngestionResult:
     problem_count: int
     non_problem_count: int
     embedding_count: int
+    classification_error_count: int
     source_stats: tuple[SourceIngestionStats, ...]
     errors: tuple[SourceIngestionError, ...]
     successful_source_count: int
@@ -76,6 +78,9 @@ class MultiSourceIngestionService:
             problem_count=sum(item.problem_count for item in source_stats),
             non_problem_count=sum(item.non_problem_count for item in source_stats),
             embedding_count=sum(item.embedding_count for item in source_stats),
+            classification_error_count=sum(
+                item.classification_error_count for item in source_stats
+            ),
             source_stats=tuple(source_stats),
             errors=tuple(errors),
             successful_source_count=len(source_stats),
@@ -98,4 +103,5 @@ class MultiSourceIngestionService:
             problem_count=stats.problem_count,
             non_problem_count=stats.non_problem_count,
             embedding_count=stats.embedding_count,
+            classification_error_count=stats.classification_error_count,
         )

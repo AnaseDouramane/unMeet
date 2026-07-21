@@ -22,14 +22,20 @@ class FakePipeline:
         self.last_run_stats = outcome
 
 
-def _stats(acquired: int, problems: int, non_problems: int, embeddings: int) -> PipelineRunStats:
-    return PipelineRunStats(acquired, problems, non_problems, embeddings)
+def _stats(
+    acquired: int,
+    problems: int,
+    non_problems: int,
+    embeddings: int,
+    classification_errors: int = 0,
+) -> PipelineRunStats:
+    return PipelineRunStats(acquired, problems, non_problems, embeddings, classification_errors)
 
 
 def test_multi_source_ingestion_aggregates_two_successful_sources() -> None:
     pipeline = FakePipeline(
         {
-            "hackernews": _stats(4, 2, 2, 2),
+            "hackernews": _stats(4, 2, 2, 2, classification_errors=1),
             "reddit": _stats(3, 1, 2, 1),
         }
     )
@@ -42,6 +48,7 @@ def test_multi_source_ingestion_aggregates_two_successful_sources() -> None:
     assert pipeline.sources == ["hackernews", "reddit"]
     assert (result.acquired_count, result.problem_count) == (7, 3)
     assert (result.non_problem_count, result.embedding_count) == (4, 3)
+    assert result.classification_error_count == 1
     assert [item.source for item in result.source_stats] == ["hackernews", "reddit"]
     assert result.errors == ()
     assert result.successful_source_count == 2

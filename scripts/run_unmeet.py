@@ -87,7 +87,12 @@ def _build_connectors(settings: Settings) -> tuple[HackerNewsConnector | RedditC
     connectors: list[HackerNewsConnector | RedditConnector] = []
     for source in _normalize_enabled_sources(settings.enabled_sources):
         if source == "hackernews":
-            connectors.append(HackerNewsConnector(limit=10))
+            connectors.append(
+                HackerNewsConnector(
+                    feeds=settings.hackernews_feeds,
+                    limit=settings.hackernews_limit,
+                )
+            )
         elif source == "reddit":
             connectors.append(RedditConnector.from_settings(settings))
         else:
@@ -175,6 +180,7 @@ def _format_summary(
             f"Posts acquired: {ingestion_result.acquired_count}",
             f"Problems identified: {ingestion_result.problem_count}",
             f"Non-problem posts archived: {ingestion_result.non_problem_count}",
+            f"Classification errors: {ingestion_result.classification_error_count}",
             f"Documents with embeddings: {ingestion_result.embedding_count}",
             f"Analysis run ID: {analysis_result.run_id}",
             f"Clusters: {analysis_result.cluster_count}",

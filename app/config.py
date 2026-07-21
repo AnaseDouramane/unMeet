@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 import os
 
+_HACKERNEWS_SUPPORTED_FEEDS = frozenset({"topstories", "newstories", "beststories", "askstories"})
+
 
 def _reddit_subreddits() -> tuple[str, ...]:
     return tuple(
@@ -16,6 +18,33 @@ def _enabled_sources() -> tuple[str, ...]:
         for source in os.getenv("INGESTION_SOURCES", "hackernews").split(",")
         if source.strip()
     )
+
+
+def _hackernews_feeds() -> tuple[str, ...]:
+    normalized_feeds: list[str] = []
+    seen_feeds: set[str] = set()
+    for feed in os.getenv("HACKERNEWS_FEEDS", "topstories,newstories,beststories").split(","):
+        if not feed.strip():
+            raise ValueError("Hacker News feed names must be non-empty strings")
+        normalized_feed = feed.strip().lower()
+        if normalized_feed not in _HACKERNEWS_SUPPORTED_FEEDS:
+            raise ValueError(f"Unknown Hacker News feed: {normalized_feed}")
+        if normalized_feed in seen_feeds:
+            raise ValueError(f"Duplicate Hacker News feed: {normalized_feed}")
+        seen_feeds.add(normalized_feed)
+        normalized_feeds.append(normalized_feed)
+    return tuple(normalized_feeds)
+
+
+def _positive_integer_setting(name: str, default: int) -> int:
+    raw_value = os.getenv(name, str(default))
+    try:
+        value = int(raw_value)
+    except ValueError as error:
+        raise ValueError(f"{name} must be a positive integer") from error
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
 
 
 def _ingestion_fail_fast() -> bool:
@@ -47,6 +76,8 @@ class Settings:
     reddit_subreddits: tuple[str, ...] = _reddit_subreddits()
     reddit_limit: int = int(os.getenv("REDDIT_LIMIT", "100"))
     reddit_sort: str = os.getenv("REDDIT_SORT", "new")
+    hackernews_feeds: tuple[str, ...] = _hackernews_feeds()
+    hackernews_limit: int = _positive_integer_setting("HACKERNEWS_LIMIT", 500)
     enabled_sources: tuple[str, ...] = _enabled_sources()
     ingestion_fail_fast: bool = _ingestion_fail_fast()
     github_token: str | None = os.getenv("GITHUB_TOKEN")

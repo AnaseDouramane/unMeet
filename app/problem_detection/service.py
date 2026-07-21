@@ -1,20 +1,50 @@
 from __future__ import annotations
 
 import math
+import logging
 from numbers import Real
 
 from app.preprocessing.schemas import PreparedDocument
-from app.problem_detection.schemas import ProblemClassifier, ProblemDetectionResult
+from app.problem_detection.schemas import (
+    MalformedClassifierOutputError,
+    ProblemClassifier,
+    ProblemDetectionResult,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class ProblemDetectionService:
     def __init__(self, classifier: ProblemClassifier) -> None:
         self._classifier = classifier
+        self.last_detection_was_malformed_output = False
 
     def detect(self, prepared_document: PreparedDocument) -> ProblemDetectionResult:
         document_text = prepared_document.document_text
         self._validate_document_text(document_text)
-        return validate_problem_detection_result(self._classifier.classify(document_text))
+        self.last_detection_was_malformed_output = False
+        try:
+            return validate_problem_detection_result(self._classifier.classify(document_text))
+        except MalformedClassifierOutputError:
+            self.last_detection_was_malformed_output = True
+            source_item = prepared_document.source_item
+            logger.warning(
+                "Malformed classifier output for %s:%s; treating document as non-problem",
+                source_item.source,
+                source_item.external_id,
+            )
+            return ProblemDetectionResult(
+                is_problem=False,
+                confidence=0.0,
+                reason="Malformed classifier output",
+                classifier_name=self._classifier_name(),
+            )
+
+    def _classifier_name(self) -> str:
+        classifier_name = getattr(self._classifier, "classifier_name", None)
+        if isinstance(classifier_name, str) and classifier_name.strip():
+            return classifier_name.strip()
+        return type(self._classifier).__name__
 
     @staticmethod
     def _validate_document_text(document_text: str) -> None:

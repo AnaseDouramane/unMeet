@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 import pytest
 
 from app.ingestion.schemas import SourceItem
-from app.problem_detection.schemas import ProblemDetectionResult
+from app.problem_detection.schemas import MalformedClassifierOutputError, ProblemDetectionResult
+from app.problem_detection.service import ProblemDetectionService
 from app.services.pipeline import Pipeline
 from app.services.preprocessing import PreprocessingService
 
@@ -28,6 +29,14 @@ class FakeMixedConnector:
         yield from (_source_item(index) for index in range(3))
 
 
+class FakeBatchConnector:
+    def __init__(self, count: int) -> None:
+        self.count = count
+
+    def fetch(self):
+        yield from (_source_item(index) for index in range(self.count))
+
+
 class FakeEmbeddingService:
     def __init__(self) -> None:
         self.model_name = "fake-embedding-model"
@@ -47,6 +56,44 @@ class FakeProblemDetectionService:
     def detect(self, prepared_document) -> ProblemDetectionResult:
         self.calls.append(prepared_document.document_text)
         return self.results[len(self.calls) - 1]
+
+
+class BatchClassifier:
+    classifier_name = "Qwen3ProblemClassifier:batch-test"
+
+    def __init__(self, malformed_index: int) -> None:
+        self.malformed_index = malformed_index
+        self.calls = 0
+
+    def classify(self, document_text: str) -> ProblemDetectionResult:
+        current_index = self.calls
+        self.calls += 1
+        if current_index == self.malformed_index:
+            raise MalformedClassifierOutputError("classifier output contains malformed JSON")
+        return _result(True)
+
+
+class FailingInfrastructureClassifier:
+    classifier_name = "Qwen3ProblemClassifier:batch-test"
+
+    def classify(self, document_text: str) -> ProblemDetectionResult:
+        raise RuntimeError("model generation failed")
+
+
+class SemanticInvalidOutputClassifier:
+    classifier_name = "Qwen3ProblemClassifier:batch-test"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def classify(self, document_text: str) -> ProblemDetectionResult:
+        self.calls += 1
+        if self.calls == 1:
+            raise MalformedClassifierOutputError(
+                "classifier output does not conform to the required contract: "
+                "classifier output confidence must be numeric"
+            )
+        return _result(True)
 
 
 class FakeRepository:
@@ -142,6 +189,7 @@ def test_pipeline_returns_problem_documents_and_passes_embeddings() -> None:
     assert pipeline.last_run_stats.problem_count == 10
     assert pipeline.last_run_stats.non_problem_count == 0
     assert pipeline.last_run_stats.embedding_count == 10
+    assert pipeline.last_run_stats.classification_error_count == 0
 
 
 def test_pipeline_persists_non_problems_without_embedding_and_preserves_problem_order() -> None:
@@ -177,6 +225,7 @@ def test_pipeline_persists_non_problems_without_embedding_and_preserves_problem_
     assert pipeline.last_run_stats.problem_count == 2
     assert pipeline.last_run_stats.non_problem_count == 1
     assert pipeline.last_run_stats.embedding_count == 2
+    assert pipeline.last_run_stats.classification_error_count == 0
 
 
 def test_pipeline_clears_previous_run_statistics_when_a_later_run_fails() -> None:
@@ -206,3 +255,87 @@ def test_pipeline_clears_previous_run_statistics_when_a_later_run_fails() -> Non
         pipeline.run()
 
     assert pipeline.last_run_stats is None
+
+
+def test_pipeline_persists_all_100_documents_when_one_classifier_output_is_malformed() -> None:
+    repository = FakeRepository()
+    embedding_service = FakeEmbeddingService()
+    classifier = BatchClassifier(malformed_index=37)
+    pipeline = Pipeline(
+        settings=type("SettingsStub", (), {"environment": "test"})(),
+        connector=FakeBatchConnector(100),
+        preprocessing_service=PreprocessingService(),
+        repository=repository,
+        embedding_service=embedding_service,
+        problem_detection_service=ProblemDetectionService(classifier),
+    )
+
+    accepted_documents = pipeline.run()
+
+    assert len(accepted_documents) == 99
+    assert len(repository.saved) == 100
+    assert [saved[0].external_id for saved in repository.saved] == [
+        str(index) for index in range(100)
+    ]
+    malformed_saved = repository.saved[37]
+    assert malformed_saved[2] is None
+    assert malformed_saved[3] is None
+    assert malformed_saved[4] == ProblemDetectionResult(
+        False,
+        0.0,
+        "Malformed classifier output",
+        "Qwen3ProblemClassifier:batch-test",
+    )
+    assert len(embedding_service.calls) == 99
+    assert pipeline.last_run_stats is not None
+    assert pipeline.last_run_stats.acquired_count == 100
+    assert pipeline.last_run_stats.problem_count == 99
+    assert pipeline.last_run_stats.non_problem_count == 1
+    assert pipeline.last_run_stats.embedding_count == 99
+    assert pipeline.last_run_stats.classification_error_count == 1
+
+
+def test_pipeline_propagates_classifier_infrastructure_errors() -> None:
+    pipeline = Pipeline(
+        settings=type("SettingsStub", (), {"environment": "test"})(),
+        connector=FakeBatchConnector(2),
+        preprocessing_service=PreprocessingService(),
+        repository=FakeRepository(),
+        embedding_service=FakeEmbeddingService(),
+        problem_detection_service=ProblemDetectionService(FailingInfrastructureClassifier()),
+    )
+
+    with pytest.raises(RuntimeError, match="model generation failed"):
+        pipeline.run()
+
+    assert pipeline.last_run_stats is None
+
+
+def test_pipeline_continues_after_a_semantically_invalid_output_then_valid_output() -> None:
+    repository = FakeRepository()
+    embedding_service = FakeEmbeddingService()
+    pipeline = Pipeline(
+        settings=type("SettingsStub", (), {"environment": "test"})(),
+        connector=FakeBatchConnector(2),
+        preprocessing_service=PreprocessingService(),
+        repository=repository,
+        embedding_service=embedding_service,
+        problem_detection_service=ProblemDetectionService(SemanticInvalidOutputClassifier()),
+    )
+
+    accepted_documents = pipeline.run()
+
+    assert [document.source_item.external_id for document in accepted_documents] == ["1"]
+    assert len(repository.saved) == 2
+    assert repository.saved[0][4] == ProblemDetectionResult(
+        False,
+        0.0,
+        "Malformed classifier output",
+        "Qwen3ProblemClassifier:batch-test",
+    )
+    assert repository.saved[0][2] is None
+    assert repository.saved[0][3] is None
+    assert repository.saved[1][2] == [1.0] * 384
+    assert embedding_service.calls == [accepted_documents[0].document_text]
+    assert pipeline.last_run_stats is not None
+    assert pipeline.last_run_stats.classification_error_count == 1

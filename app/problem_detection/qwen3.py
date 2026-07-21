@@ -6,7 +6,7 @@ import re
 from numbers import Real
 from typing import Any
 
-from app.problem_detection.schemas import ProblemDetectionResult
+from app.problem_detection.schemas import MalformedClassifierOutputError, ProblemDetectionResult
 
 DEFAULT_QWEN3_MODEL = "Qwen/Qwen3-0.6B"
 
@@ -40,6 +40,10 @@ class Qwen3ProblemClassifier:
         return self._resolve_device_name()
 
     @property
+    def classifier_name(self) -> str:
+        return f"Qwen3ProblemClassifier:{self.model_name}"
+
+    @property
     def model_device_name(self) -> str | None:
         if self._model is None:
             return None
@@ -59,8 +63,15 @@ class Qwen3ProblemClassifier:
         tokenizer, model = self._load_components()
         prompt = self._build_prompt(tokenizer, document_text)
         output = self._generate(tokenizer, model, prompt)
-        payload = self._parse_output(output)
-        return self._to_result(payload)
+        try:
+            payload = self._parse_output(output)
+            return self._to_result(payload)
+        except MalformedClassifierOutputError:
+            raise
+        except (TypeError, ValueError) as error:
+            raise MalformedClassifierOutputError(
+                f"classifier output does not conform to the required contract: {error}"
+            ) from error
 
     def _load_components(self) -> tuple[Any, Any]:
         if self._tokenizer is None or self._model is None:
@@ -160,7 +171,9 @@ class Qwen3ProblemClassifier:
 
         input_ids = model_inputs["input_ids"]
         input_ids_device = getattr(input_ids, "device", None)
-        self._input_ids_device_name = str(input_ids_device) if input_ids_device is not None else None
+        self._input_ids_device_name = (
+            str(input_ids_device) if input_ids_device is not None else None
+        )
         with torch.inference_mode():
             generated_ids = model.generate(
                 **model_inputs,
@@ -173,23 +186,31 @@ class Qwen3ProblemClassifier:
     @staticmethod
     def _parse_output(output: str) -> dict[str, Any]:
         if not isinstance(output, str) or not output.strip():
-            raise ValueError("classifier output must contain JSON")
+            raise MalformedClassifierOutputError("classifier output must contain JSON")
 
         candidate = output.strip()
         if candidate.startswith("```"):
             fenced = re.fullmatch(r"```(?:json)?\s*(\{.*\})\s*```", candidate, re.DOTALL)
             if fenced is None:
-                raise ValueError("classifier output must contain exactly one JSON object")
+                raise MalformedClassifierOutputError(
+                    "classifier output must contain exactly one JSON object"
+                )
             candidate = fenced.group(1)
         elif "```" in candidate:
-            raise ValueError("classifier output must contain exactly one JSON object")
+            raise MalformedClassifierOutputError(
+                "classifier output must contain exactly one JSON object"
+            )
 
         try:
             payload = json.loads(candidate, object_pairs_hook=Qwen3ProblemClassifier._unique_object)
+        except MalformedClassifierOutputError:
+            raise
         except json.JSONDecodeError as error:
-            raise ValueError("classifier output contains malformed JSON") from error
+            raise MalformedClassifierOutputError(
+                "classifier output contains malformed JSON"
+            ) from error
         if not isinstance(payload, dict):
-            raise ValueError("classifier output JSON must be an object")
+            raise MalformedClassifierOutputError("classifier output JSON must be an object")
         return payload
 
     @staticmethod
@@ -197,7 +218,9 @@ class Qwen3ProblemClassifier:
         payload: dict[str, Any] = {}
         for key, value in pairs:
             if key in payload:
-                raise ValueError("classifier output JSON contains duplicate fields")
+                raise MalformedClassifierOutputError(
+                    "classifier output JSON contains duplicate fields"
+                )
             payload[key] = value
         return payload
 
@@ -229,5 +252,5 @@ class Qwen3ProblemClassifier:
             is_problem=is_problem,
             confidence=normalized_confidence,
             reason=reason.strip(),
-            classifier_name=f"Qwen3ProblemClassifier:{self.model_name}",
+            classifier_name=self.classifier_name,
         )

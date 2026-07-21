@@ -2,6 +2,10 @@ from dataclasses import dataclass
 from typing import Protocol
 
 
+class MalformedClassifierOutputError(ValueError):
+    """Raised when a classifier response cannot be parsed as the required JSON output."""
+
+
 @dataclass(frozen=True)
 class ProblemDetectionResult:
     is_problem: bool
