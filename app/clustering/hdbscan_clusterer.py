@@ -4,7 +4,7 @@ import numpy as np
 class HDBSCANClusterer:
     def __init__(
         self,
-        min_cluster_size: int = 5,
+        min_cluster_size: int = 2,
         min_samples: int | None = None,
         metric: str = "euclidean",
     ) -> None:

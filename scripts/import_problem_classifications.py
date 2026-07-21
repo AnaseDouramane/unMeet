@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
-import math
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -14,6 +12,9 @@ from sqlalchemy.orm import Session
 
 from app.database.models import SourceItemModel
 from app.database.session import SessionLocal
+from app.problem_detection.classification_jsonl import (
+    parse_classification_json_line,
+)
 
 
 @dataclass(frozen=True)
@@ -52,22 +53,22 @@ def load_classifications(path: Path) -> list[ProblemClassification]:
     for line_number, line in enumerate(lines, start=1):
         if not line.strip():
             raise ValueError(f"Record non valido alla riga {line_number}: riga vuota")
-        try:
-            record = json.loads(line, object_pairs_hook=_reject_duplicate_json_keys)
-        except json.JSONDecodeError as error:
-            raise ValueError(
-                f"JSON non valido alla riga {line_number}: {error.msg}"
-            ) from error
-        classification = _parse_classification(record, line_number)
+        parsed = parse_classification_json_line(line, line_number)
+        classification = ProblemClassification(
+            source=parsed.source,
+            external_id=parsed.external_id,
+            is_problem=parsed.is_problem,
+            confidence=parsed.confidence,
+            reason=parsed.reason,
+            classifier=parsed.classifier_name,
+        )
         previous = seen.get(classification.key)
         if previous is not None:
-            if previous != classification:
-                raise ValueError(
-                    "Duplicato contraddittorio alla riga "
-                    f"{line_number}: source='{classification.source}', "
-                    f"external_id='{classification.external_id}'"
-                )
-            continue
+            duplicate_kind = "identico" if previous == classification else "contraddittorio"
+            raise ValueError(
+                f"Duplicato {duplicate_kind} alla riga {line_number}: "
+                f"source='{classification.source}', external_id='{classification.external_id}'"
+            )
         seen[classification.key] = classification
         classifications.append(classification)
     return classifications
@@ -128,56 +129,6 @@ def format_report(report: ImportReport) -> str:
     )
 
 
-def _parse_classification(record: object, line_number: int) -> ProblemClassification:
-    if not isinstance(record, dict):
-        raise ValueError(f"Record non valido alla riga {line_number}: atteso un oggetto JSON")
-    required_fields = {"source", "external_id", "is_problem", "confidence", "reason", "classifier"}
-    if set(record) != required_fields:
-        raise ValueError(
-            f"Record non valido alla riga {line_number}: campi richiesti esattamente "
-            "source, external_id, is_problem, confidence, reason, classifier"
-        )
-
-    source = _required_text(record["source"], "source", line_number)
-    external_id = _required_text(record["external_id"], "external_id", line_number)
-    reason = _required_text(record["reason"], "reason", line_number)
-    classifier = _required_text(record["classifier"], "classifier", line_number)
-    is_problem = record["is_problem"]
-    if not isinstance(is_problem, bool):
-        raise ValueError(f"Record non valido alla riga {line_number}: is_problem deve essere booleano")
-    confidence = record["confidence"]
-    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
-        raise ValueError(f"Record non valido alla riga {line_number}: confidence deve essere un numero")
-    normalized_confidence = float(confidence)
-    if not math.isfinite(normalized_confidence) or not 0 <= normalized_confidence <= 1:
-        raise ValueError(
-            f"Record non valido alla riga {line_number}: confidence deve essere finito e tra 0 e 1"
-        )
-    return ProblemClassification(
-        source=source,
-        external_id=external_id,
-        is_problem=is_problem,
-        confidence=normalized_confidence,
-        reason=reason,
-        classifier=classifier,
-    )
-
-
-def _required_text(value: object, field_name: str, line_number: int) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(
-            f"Record non valido alla riga {line_number}: {field_name} deve essere una stringa non vuota"
-        )
-    return value.strip()
-
-
-def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    record: dict[str, object] = {}
-    for key, value in pairs:
-        if key in record:
-            raise ValueError(f"Chiave JSON duplicata: '{key}'")
-        record[key] = value
-    return record
 
 
 def main() -> int:

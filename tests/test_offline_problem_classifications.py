@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import timezone
 from pathlib import Path
 
@@ -8,7 +9,8 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from app.database.models import SourceItemModel
-from scripts.export_unclassified_documents import export_unclassified_documents
+from scripts import export_unclassified_documents as export_module
+from scripts.export_unclassified_documents import ExportError, export_unclassified_documents
 from scripts.import_problem_classifications import (
     ProblemClassification,
     import_classifications,
@@ -78,9 +80,9 @@ def test_load_classifications_rejects_contradictory_duplicates(tmp_path: Path) -
     input_path = tmp_path / "results.jsonl"
     input_path.write_text(
         '{"source":"reddit","external_id":"1","is_problem":true,"confidence":0.9,'
-        '"reason":"Pain","classifier":"qwen-colab"}\n'
+        '"reason":"Pain","classifier_name":"qwen-colab"}\n'
         '{"source":"reddit","external_id":"1","is_problem":false,"confidence":0.9,'
-        '"reason":"News","classifier":"qwen-colab"}\n',
+        '"reason":"News","classifier_name":"qwen-colab"}\n',
         encoding="utf-8",
     )
 
@@ -92,7 +94,7 @@ def test_load_classifications_rejects_duplicate_json_keys(tmp_path: Path) -> Non
     input_path = tmp_path / "results.jsonl"
     input_path.write_text(
         '{"source":"reddit","source":"hackernews","external_id":"1",'
-        '"is_problem":true,"confidence":0.9,"reason":"Pain","classifier":"qwen-colab"}\n',
+        '"is_problem":true,"confidence":0.9,"reason":"Pain","classifier_name":"qwen-colab"}\n',
         encoding="utf-8",
     )
 
@@ -111,7 +113,7 @@ def test_load_classifications_rejects_duplicate_json_keys(tmp_path: Path) -> Non
                 "is_problem": "true",
                 "confidence": 0.9,
                 "reason": "Pain",
-                "classifier": "qwen-colab",
+                "classifier_name": "qwen-colab",
             },
             "is_problem",
         ),
@@ -122,7 +124,7 @@ def test_load_classifications_rejects_duplicate_json_keys(tmp_path: Path) -> Non
                 "is_problem": True,
                 "confidence": 1.1,
                 "reason": "Pain",
-                "classifier": "qwen-colab",
+                "classifier_name": "qwen-colab",
             },
             "confidence",
         ),
@@ -186,3 +188,58 @@ def test_import_supports_overwrite_and_dry_run() -> None:
     assert model.embedding_model is None
     assert session.committed == 0
     assert session.rolled_back == 1
+
+
+def test_export_writes_an_empty_jsonl_file(tmp_path: Path) -> None:
+    output_path = tmp_path / "empty.jsonl"
+
+    count = export_unclassified_documents(
+        output_path, session_factory=lambda: FakeExportSession([])
+    )
+
+    assert count == 0
+    assert output_path.read_text(encoding="utf-8") == ""
+
+
+def test_export_rejects_a_directory_output(tmp_path: Path) -> None:
+    with pytest.raises(ExportError, match="directory"):
+        export_unclassified_documents(tmp_path, session_factory=lambda: FakeExportSession([]))
+
+
+def test_export_reports_parent_directory_creation_errors(tmp_path: Path, monkeypatch) -> None:
+    output_path = tmp_path / "blocked" / "output.jsonl"
+
+    def fail_mkdir(self, *args, **kwargs):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(Path, "mkdir", fail_mkdir)
+
+    with pytest.raises(ExportError, match="directory padre"):
+        export_unclassified_documents(output_path, session_factory=lambda: FakeExportSession([]))
+
+
+def test_export_cleans_temporary_file_after_write_error(tmp_path: Path, monkeypatch) -> None:
+    output_path = tmp_path / "output.jsonl"
+
+    def fail_fsync(descriptor):
+        raise OSError("disk error")
+
+    monkeypatch.setattr(export_module.os, "fsync", fail_fsync)
+
+    with pytest.raises(ExportError, match="Impossibile scrivere"):
+        export_unclassified_documents(
+            output_path, session_factory=lambda: FakeExportSession([("reddit", "1", "text")])
+        )
+
+    assert not output_path.exists()
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_export_main_reports_filesystem_errors_without_traceback(monkeypatch, capsys, tmp_path: Path) -> None:
+    monkeypatch.setattr(sys, "argv", ["export_unclassified_documents", "--output", str(tmp_path)])
+
+    assert export_module.main() == 1
+
+    captured = capsys.readouterr()
+    assert "Errore export" in captured.err
+    assert "Traceback" not in captured.err

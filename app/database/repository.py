@@ -139,6 +139,74 @@ class SourceItemRepository:
     def exists_by_dedup_hash(self, dedup_hash: str) -> bool:
         return self.get_by_dedup_hash(dedup_hash) is not None
 
+    def save_unclassified_if_new(
+        self,
+        source_item: SourceItem,
+        prepared_document: PreparedDocument,
+    ) -> bool:
+        """Persist a document only when its source identity has not been seen.
+
+        Batch ingestion deliberately never refreshes existing records: their offline
+        classification and embedding state must remain stable between runs.
+        """
+        self._validate_published_at(source_item.published_at)
+        session = self._open_session()
+        try:
+            if self._get_by_source_and_external_id(
+                session, source_item.source, source_item.external_id
+            ) is not None:
+                return False
+            model = SourceItemModel()
+            self._apply_source_item(model, source_item)
+            self._apply_prepared_document(model, prepared_document)
+            model.processed_at = datetime.now(timezone.utc)
+            session.add(model)
+            session.commit()
+            return True
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            self._close_session(session)
+
+    def find_classified_problems_without_embeddings(self) -> list[PersistedSourceItem]:
+        session = self._open_session()
+        try:
+            statement = (
+                select(SourceItemModel)
+                .where(
+                    SourceItemModel.is_problem.is_(True),
+                    SourceItemModel.embedding.is_(None),
+                )
+                .order_by(SourceItemModel.id)
+            )
+            return [self._to_persisted_source_item(model) for model in session.scalars(statement)]
+        finally:
+            self._close_session(session)
+
+    def save_embedding(self, source_item_id: int, embedding: Sequence[float], embedding_model: str) -> None:
+        if isinstance(source_item_id, bool) or not isinstance(source_item_id, int):
+            raise TypeError("source_item_id must be an integer")
+        normalized_embedding = self._normalize_embedding(embedding)
+        normalized_model = self._validate_embedding_input(normalized_embedding, embedding_model)
+        session = self._open_session()
+        try:
+            model = session.get(SourceItemModel, source_item_id)
+            if model is None:
+                raise ValueError("source item does not exist")
+            if model.is_problem is not True:
+                raise ValueError("embedding requires an is_problem=True classification")
+            if model.embedding is not None:
+                return
+            model.embedding = normalized_embedding
+            model.embedding_model = normalized_model
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            self._close_session(session)
+
     def save(
         self,
         source_item: SourceItem,
