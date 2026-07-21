@@ -12,6 +12,14 @@ def _reddit_subreddits() -> tuple[str, ...]:
     )
 
 
+def _github_repositories() -> tuple[str, ...]:
+    return tuple(
+        repository.strip()
+        for repository in os.getenv("GITHUB_REPOSITORIES", "").split(",")
+        if repository.strip()
+    )
+
+
 def _enabled_sources() -> tuple[str, ...]:
     return tuple(
         source.strip().lower()
@@ -81,6 +89,10 @@ class Settings:
     enabled_sources: tuple[str, ...] = _enabled_sources()
     ingestion_fail_fast: bool = _ingestion_fail_fast()
     github_token: str | None = os.getenv("GITHUB_TOKEN")
+    github_repositories: tuple[str, ...] = _github_repositories()
+    github_issues_limit: int = _positive_integer_setting("GITHUB_ISSUES_LIMIT", 100)
+    github_issues_state: str = os.getenv("GITHUB_ISSUES_STATE", "open")
+    github_issues_sort: str = os.getenv("GITHUB_ISSUES_SORT", "updated")
     embedding_model: str = os.getenv(
         "EMBEDDING_MODEL",
         "sentence-transformers/all-MiniLM-L6-v2",

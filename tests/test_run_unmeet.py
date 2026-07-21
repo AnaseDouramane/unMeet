@@ -180,6 +180,7 @@ def test_main_skips_analysis_when_all_sources_fail(monkeypatch) -> None:
 def test_build_application_wires_multiple_connectors_with_factories(monkeypatch) -> None:
     connector = object()
     reddit_connector = object()
+    github_connector = object()
     preprocessing_service = object()
     embedding_service = type("EmbeddingService", (), {"model_name": "model-a"})()
     pipeline = object()
@@ -200,6 +201,11 @@ def test_build_application_wires_multiple_connectors_with_factories(monkeypatch)
         run_unmeet.RedditConnector,
         "from_settings",
         lambda settings: reddit_connector,
+    )
+    monkeypatch.setattr(
+        run_unmeet.GitHubIssuesConnector,
+        "from_settings",
+        lambda settings: github_connector,
     )
     monkeypatch.setattr(run_unmeet, "PreprocessingService", lambda: preprocessing_service)
     monkeypatch.setattr(run_unmeet, "Qwen3ProblemClassifier", lambda: object())
@@ -224,7 +230,7 @@ def test_build_application_wires_multiple_connectors_with_factories(monkeypatch)
         (),
         {
             "embedding_model": "model-a",
-            "enabled_sources": ("hackernews", "reddit"),
+            "enabled_sources": ("hackernews", "reddit", "github"),
             "ingestion_fail_fast": False,
             "hackernews_feeds": ("topstories", "newstories"),
             "hackernews_limit": 500,
@@ -235,7 +241,7 @@ def test_build_application_wires_multiple_connectors_with_factories(monkeypatch)
 
     assert application.fail_fast is False
     assert multi_source_kwargs["pipeline"] is pipeline
-    assert multi_source_kwargs["connectors"] == (connector, reddit_connector)
+    assert multi_source_kwargs["connectors"] == (connector, reddit_connector, github_connector)
     assert multi_source_kwargs["fail_fast"] is False
     assert hackernews_kwargs == {"feeds": ("topstories", "newstories"), "limit": 500}
 
@@ -264,6 +270,7 @@ def test_build_connectors_rejects_duplicate_sources_before_construction(
 def test_build_connectors_normalizes_valid_hackernews_and_reddit_sources(monkeypatch) -> None:
     hackernews = object()
     reddit = object()
+    github = object()
     hackernews_kwargs = {}
     monkeypatch.setattr(
         run_unmeet,
@@ -271,11 +278,12 @@ def test_build_connectors_normalizes_valid_hackernews_and_reddit_sources(monkeyp
         lambda **kwargs: hackernews_kwargs.update(kwargs) or hackernews,
     )
     monkeypatch.setattr(run_unmeet.RedditConnector, "from_settings", lambda settings: reddit)
+    monkeypatch.setattr(run_unmeet.GitHubIssuesConnector, "from_settings", lambda settings: github)
     settings = type(
         "Settings",
         (),
         {
-            "enabled_sources": (" HackerNews ", "REDDIT"),
+            "enabled_sources": (" HackerNews ", "REDDIT", "GitHub"),
             "hackernews_feeds": ("beststories",),
             "hackernews_limit": 9,
         },
@@ -283,7 +291,7 @@ def test_build_connectors_normalizes_valid_hackernews_and_reddit_sources(monkeyp
 
     connectors = run_unmeet._build_connectors(settings)
 
-    assert connectors == (hackernews, reddit)
+    assert connectors == (hackernews, reddit, github)
     assert hackernews_kwargs == {"feeds": ("beststories",), "limit": 9}
 
 

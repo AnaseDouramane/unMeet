@@ -19,6 +19,7 @@ from app.database.repository import ClusterRepository, SourceItemRepository
 from app.database.schemas import ClusterRunMetadata
 from app.embeddings.embedding_service import EmbeddingService
 from app.ingestion.hackernews import HackerNewsConnector
+from app.ingestion.github import GitHubIssuesConnector
 from app.ingestion.reddit import RedditConnector
 from app.problem_detection.qwen3 import Qwen3ProblemClassifier
 from app.problem_detection.service import ProblemDetectionService
@@ -83,8 +84,10 @@ def build_application(settings: Settings) -> UnmeetApplication:
     )
 
 
-def _build_connectors(settings: Settings) -> tuple[HackerNewsConnector | RedditConnector, ...]:
-    connectors: list[HackerNewsConnector | RedditConnector] = []
+def _build_connectors(
+    settings: Settings,
+) -> tuple[HackerNewsConnector | RedditConnector | GitHubIssuesConnector, ...]:
+    connectors: list[HackerNewsConnector | RedditConnector | GitHubIssuesConnector] = []
     for source in _normalize_enabled_sources(settings.enabled_sources):
         if source == "hackernews":
             connectors.append(
@@ -95,6 +98,8 @@ def _build_connectors(settings: Settings) -> tuple[HackerNewsConnector | RedditC
             )
         elif source == "reddit":
             connectors.append(RedditConnector.from_settings(settings))
+        elif source == "github":
+            connectors.append(GitHubIssuesConnector.from_settings(settings))
         else:
             raise ValueError(f"Unsupported ingestion source: {source}")
     if not connectors:
