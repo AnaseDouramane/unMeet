@@ -54,10 +54,10 @@ def cluster_detail(
     dependencies: ApiDependencies = Depends(get_dependencies),
 ) -> ClusterDetailResponse:
     _validate_pagination(document_limit)
-    detail = dependencies.analytics_reader.get_cluster(cluster_id)
+    detail = dependencies.analytics_reader.get_cluster(cluster_id, document_limit=document_limit)
     if detail is None:
         raise ApiError(404, "cluster_not_found", "cluster was not found")
     return ClusterDetailResponse(
         cluster=opportunity_response(detail.cluster),
-        documents=[document_response(item) for item in detail.documents[:document_limit]],
+        documents=[document_response(item) for item in detail.documents],
     )

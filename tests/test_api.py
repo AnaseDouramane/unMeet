@@ -20,7 +20,7 @@ from app.api.dependencies import (
     PublicDocument,
     RepositoryAnalyticsReadFacade,
 )
-from app.database.schemas import ClusterRunMetadata, PersistedClusterRunDetails
+from app.database.schemas import ClusterRunMetadata, PersistedClusterDocument, PersistedClusterRunDetails
 from app.database.schemas import ClusterOpportunityStatistics, PersistedClusterDetails
 from app.clustering.schemas import ClusterTrend
 
@@ -94,7 +94,7 @@ class FakeAnalyticsReader:
     def get_clusters(self):
         return self.items
 
-    def get_cluster(self, cluster_id: int):
+    def get_cluster(self, cluster_id: int, document_limit: int = 20):
         item = next((item for item in self.items if item.cluster_id == cluster_id), None)
         return None if item is None else ClusterDetail(item, (_document(),))
 
@@ -180,6 +180,86 @@ def test_cluster_detail_hides_centroid_and_handles_not_found() -> None:
     assert found.json()["documents"][0]["id"] == 1
     assert missing.status_code == 404
     assert missing.json()["code"] == "cluster_not_found"
+
+
+def _cluster_document(document_id: int) -> PersistedClusterDocument:
+    return PersistedClusterDocument(
+        id=document_id,
+        source="reddit",
+        external_id=str(document_id),
+        title=f"Document {document_id}",
+        body="Associated problem document",
+        url=f"https://example.test/{document_id}",
+        author="alice",
+        published_at=datetime(2025, 1, document_id, tzinfo=UTC),
+        problem_confidence=0.9,
+    )
+
+
+def test_repository_facade_returns_associated_documents_and_honors_limit() -> None:
+    class FakeClusterRepository:
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int]] = []
+
+        def get_documents_for_cluster(self, cluster_id: int, limit: int):
+            self.calls.append((cluster_id, limit))
+            return tuple(_cluster_document(index) for index in range(1, 15))[:limit]
+
+    repository = FakeClusterRepository()
+    reader = RepositoryAnalyticsReadFacade(repository, object())
+    reader.get_clusters = lambda: (_item(101, 1, count=14),)  # type: ignore[method-assign]
+
+    detail = reader.get_cluster(101, document_limit=3)
+
+    assert detail is not None
+    assert len(detail.documents) == 3
+    assert [document.id for document in detail.documents] == [1, 2, 3]
+    assert repository.calls == [(101, 3)]
+    assert not hasattr(detail.documents[0], "raw_payload")
+    assert not hasattr(detail.documents[0], "embedding")
+
+
+def test_repository_facade_handles_empty_and_missing_clusters_without_document_query() -> None:
+    class FakeClusterRepository:
+        def get_documents_for_cluster(self, cluster_id: int, limit: int):
+            return ()
+
+    reader = RepositoryAnalyticsReadFacade(FakeClusterRepository(), object())
+    reader.get_clusters = lambda: (_item(101, 1, count=0),)  # type: ignore[method-assign]
+
+    empty = reader.get_cluster(101, document_limit=20)
+    missing = reader.get_cluster(999, document_limit=20)
+
+    assert empty == ClusterDetail(_item(101, 1, count=0), ())
+    assert missing is None
+
+
+def test_cluster_detail_endpoint_returns_persisted_associated_documents() -> None:
+    class FakeClusterRepository:
+        def get_documents_for_cluster(self, cluster_id: int, limit: int):
+            assert cluster_id == 101
+            assert limit == 1
+            return (_cluster_document(14),)
+
+    reader = RepositoryAnalyticsReadFacade(FakeClusterRepository(), object())
+    reader.get_clusters = lambda: (_item(101, 1, count=14),)  # type: ignore[method-assign]
+
+    response = _client(reader=reader).get("/api/v1/clusters/101", params={"document_limit": 1})
+
+    assert response.status_code == 200
+    assert response.json()["cluster"]["document_count"] == 14
+    assert response.json()["documents"] == [
+        {
+            "id": 14,
+            "source": "reddit",
+            "title": "Document 14",
+            "body": "Associated problem document",
+            "url": "https://example.test/14",
+            "author": "alice",
+            "published_at": "2025-01-14T00:00:00Z",
+            "problem_confidence": 0.9,
+        }
+    ]
 
 
 def test_trends_support_each_period() -> None:

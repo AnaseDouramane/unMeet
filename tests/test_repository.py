@@ -36,11 +36,14 @@ class FakeSession:
         self,
         scalar_results: list[object | None] | None = None,
         scalars_results: list[list[object]] | None = None,
+        execute_results: list[list[object]] | None = None,
     ) -> None:
         self.scalar_results = scalar_results or []
         self.scalars_results = scalars_results or []
+        self.execute_results = execute_results or []
         self.scalar_statements = []
         self.scalars_statements = []
+        self.execute_statements = []
         self.added = []
         self.committed = 0
         self.rolled_back = 0
@@ -70,6 +73,12 @@ class FakeSession:
         rows = self.scalars_results.pop(0)
         self.returned_models.extend(rows)
         return FakeScalarResult(rows)
+
+    def execute(self, statement):
+        self.execute_statements.append(statement)
+        if not self.execute_results:
+            raise AssertionError(f"Unexpected execute call: {statement}")
+        return self.execute_results.pop(0)
 
     def add(self, model):
         self.added.append(model)
@@ -381,6 +390,55 @@ def test_cluster_repository_resolves_source_items_by_document_id_and_returns_det
     assert run_model.min_cluster_size == 5
     assert run_model.min_samples is None
     assert run_model.metric == "euclidean"
+
+
+def test_cluster_repository_reads_only_associated_documents_in_deterministic_order() -> None:
+    newest = _source_model(document_id=2)
+    newest.published_at = datetime(2024, 1, 2, tzinfo=timezone.utc)
+    oldest = _source_model(document_id=1)
+    oldest.published_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    session = FakeSession(
+        execute_results=[
+            [
+                (
+                    newest.id,
+                    newest.source,
+                    newest.external_id,
+                    newest.title,
+                    newest.body,
+                    newest.url,
+                    newest.author,
+                    newest.published_at,
+                    newest.problem_confidence,
+                ),
+                (
+                    oldest.id,
+                    oldest.source,
+                    oldest.external_id,
+                    oldest.title,
+                    oldest.body,
+                    oldest.url,
+                    oldest.author,
+                    oldest.published_at,
+                    oldest.problem_confidence,
+                ),
+            ]
+        ]
+    )
+
+    documents = ClusterRepository(session_factory=FakeSessionFactory([session])).get_documents_for_cluster(
+        101, limit=2
+    )
+
+    assert [document.id for document in documents] == [2, 1]
+    assert documents[0].external_id == "2"
+    assert not hasattr(documents[0], "raw_payload")
+    assert not hasattr(documents[0], "embedding")
+    compiled_sql = str(session.execute_statements[0].compile(dialect=postgresql.dialect()))
+    assert "cluster_source_items.cluster_id" in compiled_sql
+    assert "ORDER BY source_items.published_at DESC, source_items.id ASC" in compiled_sql
+    assert "raw_payload" not in compiled_sql
+    assert "embedding" not in compiled_sql
 
 
 def test_cluster_repository_returns_latest_compatible_run_as_a_dto() -> None:

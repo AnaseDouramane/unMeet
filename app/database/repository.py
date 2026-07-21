@@ -22,6 +22,7 @@ from app.database.schemas import (
     ClusterRunMetadata,
     PersistedCluster,
     PersistedClusterDetails,
+    PersistedClusterDocument,
     PersistedClusterRun,
     PersistedClusterRunDetails,
     PersistedSourceItem,
@@ -527,6 +528,63 @@ class ClusterRepository:
             )
             models = session.scalars(statement).all()
             return tuple(self._to_persisted_cluster_details(model) for model in models)
+        finally:
+            session.close()
+
+    def get_documents_for_cluster(
+        self, cluster_id: int, limit: int
+    ) -> tuple[PersistedClusterDocument, ...]:
+        """Return only documents linked to a persisted cluster, in stable display order."""
+        if isinstance(cluster_id, bool) or not isinstance(cluster_id, int):
+            raise TypeError("cluster_id must be an integer")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        session = self._session_factory()
+        try:
+            statement = (
+                select(
+                    SourceItemModel.id,
+                    SourceItemModel.source,
+                    SourceItemModel.external_id,
+                    SourceItemModel.title,
+                    SourceItemModel.body,
+                    SourceItemModel.url,
+                    SourceItemModel.author,
+                    SourceItemModel.published_at,
+                    SourceItemModel.problem_confidence,
+                )
+                .join(
+                    cluster_source_items,
+                    cluster_source_items.c.source_item_id == SourceItemModel.id,
+                )
+                .where(cluster_source_items.c.cluster_id == cluster_id)
+                .order_by(SourceItemModel.published_at.desc(), SourceItemModel.id.asc())
+                .limit(limit)
+            )
+            return tuple(
+                PersistedClusterDocument(
+                    id=id,
+                    source=source,
+                    external_id=external_id,
+                    title=title,
+                    body=body,
+                    url=url,
+                    author=author,
+                    published_at=published_at,
+                    problem_confidence=problem_confidence,
+                )
+                for (
+                    id,
+                    source,
+                    external_id,
+                    title,
+                    body,
+                    url,
+                    author,
+                    published_at,
+                    problem_confidence,
+                ) in session.execute(statement)
+            )
         finally:
             session.close()
 

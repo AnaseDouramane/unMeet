@@ -48,6 +48,21 @@ class PersistedClusterDetails:
 
 
 @dataclass(frozen=True)
+class PersistedClusterDocument:
+    """Safe source-item projection for a persisted cluster detail."""
+
+    id: int
+    source: str
+    external_id: str
+    title: str
+    body: str
+    url: str
+    author: str | None
+    published_at: datetime
+    problem_confidence: float | None
+
+
+@dataclass(frozen=True)
 class ClusterOpportunityStatistics:
     cluster_id: int
     source_count: int

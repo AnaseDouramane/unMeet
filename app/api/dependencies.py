@@ -51,7 +51,7 @@ class AnalyticsReadFacade(Protocol):
 
     def get_clusters(self) -> Sequence[ClusterRankingItem]: ...
 
-    def get_cluster(self, cluster_id: int) -> ClusterDetail | None: ...
+    def get_cluster(self, cluster_id: int, document_limit: int = 20) -> ClusterDetail | None: ...
 
 
 class SemanticSearch(Protocol):
@@ -80,7 +80,7 @@ class EmptyAnalyticsReadFacade:
     def get_clusters(self) -> Sequence[ClusterRankingItem]:
         return ()
 
-    def get_cluster(self, cluster_id: int) -> ClusterDetail | None:
+    def get_cluster(self, cluster_id: int, document_limit: int = 20) -> ClusterDetail | None:
         return None
 
 
@@ -149,12 +149,33 @@ class RepositoryAnalyticsReadFacade:
     def get_clusters(self) -> Sequence[ClusterRankingItem]:
         return self.get_opportunities()
 
-    def get_cluster(self, cluster_id: int) -> ClusterDetail | None:
+    def get_cluster(self, cluster_id: int, document_limit: int = 20) -> ClusterDetail | None:
         cluster = next(
             (item for item in self.get_clusters() if item.cluster_id == cluster_id),
             None,
         )
-        return None if cluster is None else ClusterDetail(cluster, ())
+        if cluster is None:
+            return None
+        try:
+            documents = self._cluster_repository.get_documents_for_cluster(cluster_id, document_limit)
+        except SQLAlchemyError as error:
+            raise DatabaseUnavailableError("database is unavailable") from error
+        return ClusterDetail(
+            cluster,
+            tuple(
+                PublicDocument(
+                    id=document.id,
+                    source=document.source,
+                    title=document.title,
+                    body=document.body,
+                    url=document.url,
+                    author=document.author,
+                    published_at=document.published_at,
+                    problem_confidence=document.problem_confidence or 0.0,
+                )
+                for document in documents
+            ),
+        )
 
 
 class RepositorySemanticSearch:
