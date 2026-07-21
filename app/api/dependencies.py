@@ -8,8 +8,16 @@ from typing import Protocol
 from fastapi import Request
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.analytics.schemas import AnalyticsResult, ClusterRankingItem, TimeSeriesGranularity
-from app.database.repository import SourceItemRepository
+from app.analytics.schemas import (
+    AnalyticsResult,
+    ClusterRankingItem,
+    DashboardSummary,
+    SourceProblemCount,
+    TimeSeriesGranularity,
+    TrendDistribution,
+)
+from app.analytics.service import AnalyticsService
+from app.database.repository import ClusterRepository, SourceItemRepository
 from app.embeddings.embedding_service import EmbeddingService
 
 
@@ -49,24 +57,79 @@ class SemanticSearch(Protocol):
     def search(self, query: str, limit: int) -> Sequence[PublicDocument]: ...
 
 
-class UnavailableAnalyticsReadFacade:
-    """Default until an application composition supplies persisted read snapshots."""
+class EmptyAnalyticsReadFacade:
+    """Default reader for a valid database with no analytics data yet."""
 
     @staticmethod
-    def _raise() -> None:
-        raise DatabaseUnavailableError("analytics read data is unavailable")
+    def _empty_result() -> AnalyticsResult:
+        return AnalyticsResult(
+            summary=DashboardSummary(0, 0, 0, 0, 0, 0, 0, None, None),
+            top_opportunities=(),
+            source_breakdown=(),
+            trend_distribution=TrendDistribution(0, 0, 0, 0),
+            time_series=(),
+        )
 
     def get_analytics(self, period: TimeSeriesGranularity) -> AnalyticsResult:
-        self._raise()
+        return self._empty_result()
 
     def get_opportunities(self) -> Sequence[ClusterRankingItem]:
-        self._raise()
+        return ()
 
     def get_clusters(self) -> Sequence[ClusterRankingItem]:
-        self._raise()
+        return ()
 
     def get_cluster(self, cluster_id: int) -> ClusterDetail | None:
-        self._raise()
+        return None
+
+
+class RepositoryAnalyticsReadFacade:
+    """Read persisted analytics data, preserving empty analysis runs."""
+
+    def __init__(
+        self,
+        cluster_repository: ClusterRepository,
+        source_item_repository: SourceItemRepository,
+        analytics_service: AnalyticsService | None = None,
+    ) -> None:
+        self._cluster_repository = cluster_repository
+        self._source_item_repository = source_item_repository
+        self._analytics_service = analytics_service or AnalyticsService()
+
+    def get_analytics(self, period: TimeSeriesGranularity) -> AnalyticsResult:
+        try:
+            latest_run = self._cluster_repository.find_latest_run()
+            if latest_run is None:
+                return EmptyAnalyticsReadFacade._empty_result()
+            source_problem_counts = tuple(
+                SourceProblemCount(source, problem_count)
+                for source, problem_count in self._source_item_repository.count_problems_by_source()
+            )
+            clusters = self._cluster_repository.get_clusters_for_run(latest_run.id)
+            return self._analytics_service.build(
+                latest_run,
+                clusters,
+                (),
+                (),
+                source_problem_counts,
+                (),
+                period,
+            )
+        except SQLAlchemyError as error:
+            raise DatabaseUnavailableError("database is unavailable") from error
+
+    def get_opportunities(self) -> Sequence[ClusterRankingItem]:
+        return self.get_analytics(TimeSeriesGranularity.DAY).top_opportunities
+
+    def get_clusters(self) -> Sequence[ClusterRankingItem]:
+        return self.get_opportunities()
+
+    def get_cluster(self, cluster_id: int) -> ClusterDetail | None:
+        cluster = next(
+            (item for item in self.get_clusters() if item.cluster_id == cluster_id),
+            None,
+        )
+        return None if cluster is None else ClusterDetail(cluster, ())
 
 
 class RepositorySemanticSearch:
@@ -108,7 +171,10 @@ class ApiDependencies:
 
 def build_default_dependencies(embedding_model: str) -> ApiDependencies:
     return ApiDependencies(
-        analytics_reader=UnavailableAnalyticsReadFacade(),
+        analytics_reader=RepositoryAnalyticsReadFacade(
+            ClusterRepository(),
+            SourceItemRepository(),
+        ),
         semantic_search=RepositorySemanticSearch(
             EmbeddingService(embedding_model),
             SourceItemRepository(),

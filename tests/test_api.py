@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.analytics.schemas import (
     AnalyticsResult,
@@ -15,9 +16,11 @@ from app.api.app import create_app
 from app.api.dependencies import (
     ApiDependencies,
     ClusterDetail,
-    DatabaseUnavailableError,
+    EmptyAnalyticsReadFacade,
     PublicDocument,
+    RepositoryAnalyticsReadFacade,
 )
+from app.database.schemas import ClusterRunMetadata, PersistedClusterRunDetails
 
 
 def _item(
@@ -122,6 +125,19 @@ def test_health_does_not_construct_qwen(monkeypatch) -> None:
     assert response.json()["status"] == "ok"
 
 
+def test_default_cors_allows_next_development_origin() -> None:
+    response = _client().options(
+        "/health",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
 def test_summary_returns_aggregated_read_data() -> None:
     response = _client().get("/api/v1/analytics/summary")
 
@@ -204,11 +220,170 @@ def test_invalid_limits_return_400() -> None:
 
 
 def test_database_error_returns_503() -> None:
-    class FailingReader(FakeAnalyticsReader):
-        def get_analytics(self, period: TimeSeriesGranularity) -> AnalyticsResult:
-            raise DatabaseUnavailableError("database is unavailable")
+    class FailingClusterRepository:
+        def find_latest_run(self):
+            raise SQLAlchemyError("database connection failed")
 
-    response = _client(reader=FailingReader()).get("/api/v1/analytics/summary")
+    class UnusedSourceItemRepository:
+        pass
+
+    response = _client(
+        reader=RepositoryAnalyticsReadFacade(
+            FailingClusterRepository(),
+            UnusedSourceItemRepository(),
+        )
+    ).get("/api/v1/analytics/summary")
 
     assert response.status_code == 503
     assert response.json()["code"] == "database_unavailable"
+
+
+def test_empty_database_returns_valid_empty_responses() -> None:
+    class FakeClusterRepository:
+        def find_latest_run(self):
+            return None
+
+    class UnexpectedSourceItemRepository:
+        def count_problems_by_source(self):
+            raise AssertionError("source counts must not be read without an analysis run")
+
+    client = _client(
+        reader=RepositoryAnalyticsReadFacade(
+            FakeClusterRepository(),
+            UnexpectedSourceItemRepository(),
+        )
+    )
+
+    summary = client.get("/api/v1/analytics/summary")
+    clusters = client.get("/api/v1/clusters")
+    opportunities = client.get("/api/v1/opportunities")
+    trends = client.get("/api/v1/trends")
+
+    assert summary.status_code == 200
+    assert summary.json() == {
+        "summary": {
+            "total_problems": 0,
+            "total_clusters": 0,
+            "new_clusters": 0,
+            "rising_clusters": 0,
+            "stable_clusters": 0,
+            "falling_clusters": 0,
+            "source_count": 0,
+            "latest_run_id": None,
+            "latest_run_created_at": None,
+        },
+        "trend_distribution": {
+            "new_count": 0,
+            "rising_count": 0,
+            "stable_count": 0,
+            "falling_count": 0,
+        },
+        "source_breakdown": [],
+    }
+    assert clusters.status_code == 200
+    assert clusters.json()["items"] == []
+    assert opportunities.status_code == 200
+    assert opportunities.json() == {"items": []}
+    assert trends.status_code == 200
+    assert trends.json() == {
+        "trend_distribution": {
+            "new_count": 0,
+            "rising_count": 0,
+            "stable_count": 0,
+            "falling_count": 0,
+        },
+        "time_series": [],
+    }
+
+
+def test_empty_latest_run_returns_empty_analytics_data() -> None:
+    class EmptyRunReader(EmptyAnalyticsReadFacade):
+        def get_analytics(self, period: TimeSeriesGranularity) -> AnalyticsResult:
+            result = self._empty_result()
+            return AnalyticsResult(
+                summary=DashboardSummary(
+                    0, 0, 0, 0, 0, 0, 0, 42, datetime(2025, 1, 2, tzinfo=UTC)
+                ),
+                top_opportunities=result.top_opportunities,
+                source_breakdown=result.source_breakdown,
+                trend_distribution=result.trend_distribution,
+                time_series=result.time_series,
+            )
+
+    client = _client(reader=EmptyRunReader())
+
+    summary = client.get("/api/v1/analytics/summary")
+    clusters = client.get("/api/v1/clusters")
+    opportunities = client.get("/api/v1/opportunities")
+    trends = client.get("/api/v1/trends")
+
+    assert summary.status_code == 200
+    assert summary.json()["summary"]["latest_run_id"] == 42
+    assert summary.json()["summary"]["total_clusters"] == 0
+    assert clusters.status_code == 200
+    assert clusters.json()["items"] == []
+    assert opportunities.status_code == 200
+    assert opportunities.json() == {"items": []}
+    assert trends.status_code == 200
+    assert trends.json()["trend_distribution"] == {
+        "new_count": 0,
+        "rising_count": 0,
+        "stable_count": 0,
+        "falling_count": 0,
+    }
+    assert trends.json()["time_series"] == []
+
+
+def test_persisted_empty_run_returns_problem_summary_and_empty_collections() -> None:
+    latest_run = PersistedClusterRunDetails(
+        2,
+        datetime(2025, 1, 2, tzinfo=UTC),
+        ClusterRunMetadata("model-a", 5, None, "euclidean"),
+    )
+
+    class FakeClusterRepository:
+        def find_latest_run(self):
+            return latest_run
+
+        def get_clusters_for_run(self, run_id: int):
+            assert run_id == 2
+            return ()
+
+    class FakeSourceItemRepository:
+        def count_problems_by_source(self):
+            return (("hackernews", 1),)
+
+    reader = RepositoryAnalyticsReadFacade(FakeClusterRepository(), FakeSourceItemRepository())
+    client = _client(reader=reader)
+
+    summary = client.get("/api/v1/analytics/summary")
+    opportunities = client.get("/api/v1/opportunities")
+    trends = client.get("/api/v1/trends")
+    clusters = client.get("/api/v1/clusters")
+
+    assert summary.status_code == 200
+    assert summary.json()["summary"] == {
+        "total_problems": 1,
+        "total_clusters": 0,
+        "new_clusters": 0,
+        "rising_clusters": 0,
+        "stable_clusters": 0,
+        "falling_clusters": 0,
+        "source_count": 1,
+        "latest_run_id": 2,
+        "latest_run_created_at": "2025-01-02T00:00:00Z",
+    }
+    assert opportunities.status_code == 200
+    assert opportunities.json() == {"items": []}
+    assert trends.status_code == 200
+    assert trends.json() == {
+        "trend_distribution": {
+            "new_count": 0,
+            "rising_count": 0,
+            "stable_count": 0,
+            "falling_count": 0,
+        },
+        "time_series": [],
+    }
+    assert clusters.status_code == 200
+    assert clusters.json()["items"] == []

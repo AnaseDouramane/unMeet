@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import Any
 
 import numpy as np
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.clustering.schemas import ClusterableDocument
@@ -110,6 +110,19 @@ class SourceItemRepository:
             )
             models = list(session.scalars(statement).all())
             return [self._to_clusterable_document(model) for model in models]
+        finally:
+            self._close_session(session)
+
+    def count_problems_by_source(self) -> tuple[tuple[str, int], ...]:
+        session = self._open_session()
+        try:
+            statement = (
+                select(SourceItemModel.source, func.count(SourceItemModel.id))
+                .where(SourceItemModel.is_problem.is_(True))
+                .group_by(SourceItemModel.source)
+                .order_by(SourceItemModel.source)
+            )
+            return tuple((source, count) for source, count in session.execute(statement))
         finally:
             self._close_session(session)
 
@@ -410,6 +423,17 @@ class ClusterRepository:
             )
             if exclude_run_id is not None:
                 statement = statement.where(ClusterRunModel.id != exclude_run_id)
+            run = session.scalar(statement)
+            return None if run is None else self._to_persisted_cluster_run_details(run)
+        finally:
+            session.close()
+
+    def find_latest_run(self) -> PersistedClusterRunDetails | None:
+        session = self._session_factory()
+        try:
+            statement = select(ClusterRunModel).order_by(
+                ClusterRunModel.created_at.desc(), ClusterRunModel.id.desc()
+            )
             run = session.scalar(statement)
             return None if run is None else self._to_persisted_cluster_run_details(run)
         finally:

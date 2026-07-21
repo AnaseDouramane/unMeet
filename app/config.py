@@ -25,7 +25,10 @@ def _ingestion_fail_fast() -> bool:
 def _api_cors_origins() -> tuple[str, ...]:
     return tuple(
         origin.strip()
-        for origin in os.getenv("API_CORS_ORIGINS", "http://localhost:8501").split(",")
+        for origin in os.getenv(
+            "API_CORS_ORIGINS",
+            "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8501",
+        ).split(",")
         if origin.strip()
     )
 

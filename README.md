@@ -14,29 +14,34 @@ Il flusso eseguito da `main.py` usa Hacker News come fonte attiva e svolge:
 
 La ricerca semantica, il clustering HDBSCAN, il topic labeling TF-IDF e la persistenza degli snapshot di clustering sono disponibili nei rispettivi servizi e repository. Non sono ancora orchestrati automaticamente dal run della pipeline.
 
-## Avvio locale
+## Run locally
+
+Installare prima le dipendenze Python e configurare il database come necessario per il proprio ambiente.
+
+### Backend
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-cp .env.example .env
-docker compose up -d
-python scripts/init_db.py
-python main.py
+uvicorn app.api.app:create_app --factory --reload
 ```
 
-Su Windows PowerShell:
+### Frontend
 
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r requirements-dev.txt
-Copy-Item .env.example .env
-docker compose up -d
-python scripts/init_db.py
-python main.py
+```bash
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
 ```
+
+`frontend/.env.example` contiene l'unico URL della REST API usato dal frontend:
+
+```dotenv
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Riavviare `npm run dev` dopo aver creato o modificato `.env.local`. Il backend permette per
+default le origini locali `localhost:3000` e `127.0.0.1:3000`; in altri ambienti impostare
+`API_CORS_ORIGINS` con una lista separata da virgole.
 
 ## Dashboard
 
