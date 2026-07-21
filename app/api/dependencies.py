@@ -19,6 +19,7 @@ from app.analytics.schemas import (
 from app.analytics.service import AnalyticsService
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.embeddings.embedding_service import EmbeddingService
+from app.opportunities.ranking import OpportunityClusterInput, OpportunityRankingService
 
 
 class DatabaseUnavailableError(Exception):
@@ -95,6 +96,7 @@ class RepositoryAnalyticsReadFacade:
         self._cluster_repository = cluster_repository
         self._source_item_repository = source_item_repository
         self._analytics_service = analytics_service or AnalyticsService()
+        self._opportunity_ranking_service = OpportunityRankingService()
 
     def get_analytics(self, period: TimeSeriesGranularity) -> AnalyticsResult:
         try:
@@ -106,11 +108,34 @@ class RepositoryAnalyticsReadFacade:
                 for source, problem_count in self._source_item_repository.count_problems_by_source()
             )
             clusters = self._cluster_repository.get_clusters_for_run(latest_run.id)
+            trends = self._cluster_repository.get_trends_for_run(latest_run.id)
+            rankings = ()
+            if clusters:
+                statistics_by_cluster_id = {
+                    item.cluster_id: item
+                    for item in self._cluster_repository.get_opportunity_statistics_for_run(
+                        latest_run.id
+                    )
+                }
+                ranking_inputs = tuple(
+                    OpportunityClusterInput(
+                        cluster_id=cluster.id,
+                        label=cluster.label,
+                        keywords=cluster.keywords,
+                        document_count=cluster.document_count,
+                        source_count=statistics_by_cluster_id[cluster.id].source_count,
+                        average_problem_confidence=(
+                            statistics_by_cluster_id[cluster.id].average_problem_confidence
+                        ),
+                    )
+                    for cluster in clusters
+                )
+                rankings = self._opportunity_ranking_service.rank(ranking_inputs, trends)
             return self._analytics_service.build(
                 latest_run,
                 clusters,
-                (),
-                (),
+                trends,
+                rankings,
                 source_problem_counts,
                 (),
                 period,

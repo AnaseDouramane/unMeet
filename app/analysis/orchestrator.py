@@ -57,6 +57,15 @@ class ClusterRunStore(Protocol):
 
     def get_clusters_for_run(self, run_id: int) -> tuple[PersistedClusterDetails, ...]: ...
 
+    def save_trends(
+        self,
+        run_id: int,
+        trends: Sequence[ClusterTrend],
+        previous_run_id: int | None,
+    ) -> None: ...
+
+    def delete_run(self, run_id: int) -> None: ...
+
 
 @dataclass(frozen=True)
 class AnalysisCluster:
@@ -154,30 +163,42 @@ class AnalysisOrchestrator:
                 )
             )
 
-        trend = tuple(
-            sorted(
-                self._trend_detection_service.detect(
-                    tuple(
-                        TrendCluster(
-                            id=cluster.id,
-                            label=cluster.label,
-                            document_count=cluster.document_count,
-                        )
-                        for cluster in previous_clusters
+        try:
+            trend = tuple(
+                sorted(
+                    self._trend_detection_service.detect(
+                        tuple(
+                            TrendCluster(
+                                id=cluster.id,
+                                label=cluster.label,
+                                document_count=cluster.document_count,
+                            )
+                            for cluster in previous_clusters
+                        ),
+                        tuple(
+                            TrendCluster(
+                                id=item.persisted_cluster.id,
+                                label=item.label.label,
+                                document_count=item.document_count,
+                            )
+                            for item in analysis_clusters
+                        ),
+                        matching,
                     ),
-                    tuple(
-                        TrendCluster(
-                            id=item.persisted_cluster.id,
-                            label=item.label.label,
-                            document_count=item.document_count,
-                        )
-                        for item in analysis_clusters
-                    ),
-                    matching,
-                ),
-                key=lambda item: item.current_cluster_id,
+                    key=lambda item: item.current_cluster_id,
+                )
             )
-        )
+            self._cluster_repository.save_trends(
+                persisted_run.id,
+                trend,
+                None if previous_run is None else previous_run.id,
+            )
+        except Exception:
+            try:
+                self._cluster_repository.delete_run(persisted_run.id)
+            except Exception:
+                pass
+            raise
         return AnalysisRunResult(
             run_id=persisted_run.id,
             created_at=persisted_run.created_at or self._clock(),

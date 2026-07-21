@@ -143,3 +143,32 @@ class ClusterModel(Base):
     source_items: Mapped[list[SourceItemModel]] = relationship(
         secondary=cluster_source_items, back_populates="clusters"
     )
+
+
+class ClusterTrendModel(Base):
+    __tablename__ = "cluster_trends"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "current_cluster_id",
+            name="uq_cluster_trends_run_current_cluster",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("cluster_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    current_cluster_id: Mapped[int] = mapped_column(
+        ForeignKey("clusters.id", ondelete="CASCADE"), nullable=False
+    )
+    previous_cluster_id: Mapped[int | None] = mapped_column(
+        ForeignKey("clusters.id", ondelete="SET NULL"), nullable=True
+    )
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    current_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    absolute_change: Mapped[int] = mapped_column(Integer, nullable=False)
+    growth_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    similarity: Mapped[float | None] = mapped_column(Float, nullable=True)

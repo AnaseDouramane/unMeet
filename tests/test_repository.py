@@ -5,10 +5,10 @@ import pytest
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm.exc import DetachedInstanceError
 
-from app.clustering.schemas import ClusterableDocument
+from app.clustering.schemas import ClusterTrend, ClusterableDocument
 from app.clustering.service import DocumentCluster
 from app.clustering.topic_labeling import TopicLabel
-from app.database.models import ClusterModel, ClusterRunModel, SourceItemModel
+from app.database.models import ClusterModel, ClusterRunModel, ClusterTrendModel, SourceItemModel
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.database.schemas import (
     ClusterRunMetadata,
@@ -72,6 +72,12 @@ class FakeSession:
         return FakeScalarResult(rows)
 
     def add(self, model):
+        self.added.append(model)
+
+    def add_all(self, models):
+        self.added.extend(models)
+
+    def delete(self, model):
         self.added.append(model)
 
     def flush(self):
@@ -429,6 +435,54 @@ def test_cluster_repository_returns_run_clusters_as_dtos_in_deterministic_order(
     )
     compiled_sql = str(session.scalars_statements[0].compile(dialect=postgresql.dialect()))
     assert "ORDER BY clusters.local_cluster_id, clusters.id" in compiled_sql
+
+
+def test_cluster_repository_persists_and_reads_trends_by_current_database_cluster_id() -> None:
+    run = ClusterRunModel(
+        id=12, embedding_model="model-a", min_cluster_size=5, min_samples=None, metric="euclidean"
+    )
+    previous_run = ClusterRunModel(
+        id=10, embedding_model="model-a", min_cluster_size=5, min_samples=None, metric="euclidean"
+    )
+    save_session = FakeSession(
+        scalar_results=[run, previous_run], scalars_results=[[88], [101, 102]]
+    )
+    trends = (
+        ClusterTrend(101, None, "first", 3, 0, 3, None, "new", None),
+        ClusterTrend(102, 88, "second", 2, 1, 1, 1.0, "rising", 0.9),
+    )
+
+    ClusterRepository(session_factory=FakeSessionFactory([save_session])).save_trends(12, trends, 10)
+
+    assert save_session.committed == 1
+    assert [(item.run_id, item.current_cluster_id) for item in save_session.added] == [
+        (12, 101),
+        (12, 102),
+    ]
+    assert all(isinstance(item, ClusterTrendModel) for item in save_session.added)
+
+    read_session = FakeSession(scalars_results=[save_session.added])
+    found = ClusterRepository(session_factory=FakeSessionFactory([read_session])).get_trends_for_run(12)
+
+    assert found == trends
+    assert read_session.closed == 1
+
+
+def test_cluster_repository_rejects_a_trend_from_an_unrelated_previous_run() -> None:
+    run = ClusterRunModel(
+        id=12, embedding_model="model-a", min_cluster_size=5, min_samples=None, metric="euclidean"
+    )
+    incompatible_previous_run = ClusterRunModel(
+        id=10, embedding_model="model-b", min_cluster_size=5, min_samples=None, metric="euclidean"
+    )
+    session = FakeSession(scalar_results=[run, incompatible_previous_run])
+    trend = ClusterTrend(101, 88, "current", 2, 1, 1, 1.0, "rising", 0.9)
+
+    with pytest.raises(ValueError, match="not compatible"):
+        ClusterRepository(session_factory=FakeSessionFactory([session])).save_trends(12, (trend,), 10)
+
+    assert session.rolled_back == 1
+    assert session.committed == 0
 
 
 def test_cluster_repository_updates_only_within_the_same_run() -> None:

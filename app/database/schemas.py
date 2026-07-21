@@ -48,6 +48,13 @@ class PersistedClusterDetails:
 
 
 @dataclass(frozen=True)
+class ClusterOpportunityStatistics:
+    cluster_id: int
+    source_count: int
+    average_problem_confidence: float
+
+
+@dataclass(frozen=True)
 class ClusterRunMetadata:
     embedding_model: str
     min_cluster_size: int

@@ -3,7 +3,12 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.schema import UniqueConstraint
 
 from app.database.base import Base
-from app.database.models import ClusterModel, ClusterRunModel, SourceItemModel  # noqa: F401
+from app.database.models import (  # noqa: F401
+    ClusterModel,
+    ClusterRunModel,
+    ClusterTrendModel,
+    SourceItemModel,
+)
 
 
 def test_source_items_model_defines_expected_postgresql_schema() -> None:
@@ -92,6 +97,7 @@ def test_source_items_create_all_emits_postgresql_ddl() -> None:
 def test_cluster_models_define_run_snapshot_schema_and_relations() -> None:
     run_table = Base.metadata.tables["cluster_runs"]
     cluster_table = Base.metadata.tables["clusters"]
+    trend_table = Base.metadata.tables["cluster_trends"]
     association = Base.metadata.tables["cluster_source_items"]
 
     assert run_table.c.id.primary_key is True
@@ -121,3 +127,14 @@ def test_cluster_models_define_run_snapshot_schema_and_relations() -> None:
     assert ClusterRunModel.clusters.property.back_populates == "run"
     assert ClusterModel.run.property.back_populates == "clusters"
     assert ClusterModel.source_items.property.secondary is association
+    assert trend_table.c.run_id.foreign_keys
+    assert trend_table.c.current_cluster_id.foreign_keys
+    assert trend_table.c.previous_cluster_id.nullable is True
+    assert trend_table.c.status.type.length == 20
+    assert any(
+        isinstance(constraint, UniqueConstraint)
+        and constraint.name == "uq_cluster_trends_run_current_cluster"
+        and [column.name for column in constraint.columns] == ["run_id", "current_cluster_id"]
+        for constraint in trend_table.constraints
+    )
+    assert ClusterTrendModel.__tablename__ == "cluster_trends"

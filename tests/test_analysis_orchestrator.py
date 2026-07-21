@@ -64,6 +64,8 @@ class FakeClusterRepository:
         self.previous_run = previous_run
         self.previous_clusters = previous_clusters
         self.save_calls: list[tuple] = []
+        self.trend_save_calls: list[tuple[int, tuple[ClusterTrend, ...]]] = []
+        self.deleted_run_ids: list[int] = []
         self.compatibility_calls: list[tuple[ClusterRunMetadata, int]] = []
         self.cluster_run_ids: list[int] = []
 
@@ -86,6 +88,12 @@ class FakeClusterRepository:
     def get_clusters_for_run(self, run_id: int) -> tuple[PersistedClusterDetails, ...]:
         self.cluster_run_ids.append(run_id)
         return self.previous_clusters
+
+    def save_trends(self, run_id: int, trends, previous_run_id: int | None) -> None:
+        self.trend_save_calls.append((run_id, tuple(trends)))
+
+    def delete_run(self, run_id: int) -> None:
+        self.deleted_run_ids.append(run_id)
 
 
 class FakeMatchingService:
@@ -174,11 +182,36 @@ def test_first_run_persists_all_clusters_once_and_marks_them_new() -> None:
     assert analysis.clusters[0].label.label == "label-3"
     assert analysis.matching == (ClusterMatch(203, None, 0.0, "new"),)
     assert analysis.trend[0].status == "new"
+    assert repository.trend_save_calls == [(100, analysis.trend)]
+    assert analysis.trend[0].current_cluster_id == 203
     assert len(repository.save_calls) == 1
     assert len(repository.save_calls[0][0]) == 1
     assert repository.compatibility_calls == [(METADATA, 100)]
     assert matching.calls == []
     assert len(trend.calls) == 1
+
+
+def test_first_run_with_two_clusters_persists_two_new_trends_by_database_cluster_id() -> None:
+    result = ClusteringResult(
+        3,
+        (
+            _cluster(4, _document(1, 0.2), _document(2, 0.3)),
+            _cluster(9, _document(3, 0.4)),
+        ),
+    )
+    orchestrator, repository, _, _, _ = _orchestrator(result)
+
+    analysis = orchestrator.run()
+
+    assert [trend.current_cluster_id for trend in analysis.trend] == [204, 209]
+    assert [trend.current_cluster_id for trend in analysis.trend] != [4, 9]
+    assert all(trend.status == "new" for trend in analysis.trend)
+    assert all(trend.previous_cluster_id is None for trend in analysis.trend)
+    assert [trend.previous_count for trend in analysis.trend] == [0, 0]
+    assert [trend.current_count for trend in analysis.trend] == [2, 1]
+    assert all(trend.growth_rate is None for trend in analysis.trend)
+    assert all(trend.similarity is None for trend in analysis.trend)
+    assert repository.trend_save_calls == [(100, analysis.trend)]
 
 
 def test_subsequent_run_matches_previous_clusters_and_detects_trends() -> None:
@@ -200,6 +233,48 @@ def test_subsequent_run_matches_previous_clusters_and_detects_trends() -> None:
     assert matching.calls[0][0][0].cluster_id == 7
     assert matching.calls[0][1][0].cluster_id == 201
     assert trend.calls[0][0][0].id == 7
+
+
+def test_second_run_persists_one_matched_and_one_new_trend_for_current_clusters() -> None:
+    previous_run = PersistedClusterRunDetails(99, CREATED_AT, METADATA)
+    previous_cluster = PersistedClusterDetails(
+        7, 99, 4, "previous", ("previous",), tuple([0.3] * 384), 2
+    )
+    repository = FakeClusterRepository(previous_run, (previous_cluster,))
+    matching = FakeMatchingService([ClusterMatch(201, 7, 0.95, "matched"), ClusterMatch(202, None, 0.0, "new")])
+    result = ClusteringResult(
+        3,
+        (
+            _cluster(1, _document(1, 0.3), _document(2, 0.3)),
+            _cluster(2, _document(3, 0.4)),
+        ),
+    )
+    orchestrator, _, _, _, _ = _orchestrator(result, repository, matching=matching)
+
+    analysis = orchestrator.run()
+
+    assert [trend.current_cluster_id for trend in analysis.trend] == [201, 202]
+    assert [(trend.previous_cluster_id, trend.status) for trend in analysis.trend] == [
+        (7, "stable"),
+        (None, "new"),
+    ]
+    assert repository.trend_save_calls == [(100, analysis.trend)]
+
+
+def test_trend_persistence_failure_removes_the_incomplete_run() -> None:
+    class FailingTrendRepository(FakeClusterRepository):
+        def save_trends(self, run_id: int, trends, previous_run_id: int | None) -> None:
+            raise RuntimeError("trend persistence failed")
+
+    repository = FailingTrendRepository()
+    orchestrator, _, _, _, _ = _orchestrator(
+        ClusteringResult(1, (_cluster(1, _document(1, 0.2)),)), repository
+    )
+
+    with pytest.raises(RuntimeError, match="trend persistence failed"):
+        orchestrator.run()
+
+    assert repository.deleted_run_ids == [100]
 
 
 @pytest.mark.parametrize("document_count", [0, 3])

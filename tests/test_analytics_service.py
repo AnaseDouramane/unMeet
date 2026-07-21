@@ -194,3 +194,10 @@ def test_rejects_inconsistent_current_inputs() -> None:
 
     with pytest.raises(ValueError, match="cover every current cluster"):
         AnalyticsService().build(latest, clusters, trends[:-1], rankings, sources, ())
+
+
+def test_rejects_duplicate_current_cluster_trends() -> None:
+    latest, clusters, trends, rankings, sources = _current_input()
+
+    with pytest.raises(ValueError, match="duplicate trend cluster id"):
+        AnalyticsService().build(latest, clusters, trends + (trends[0],), rankings, sources, ())

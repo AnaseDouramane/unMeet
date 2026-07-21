@@ -9,9 +9,16 @@ import numpy as np
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.clustering.schemas import ClusterableDocument
-from app.database.models import ClusterModel, ClusterRunModel, SourceItemModel
+from app.clustering.schemas import ClusterTrend, ClusterableDocument
+from app.database.models import (
+    ClusterModel,
+    ClusterRunModel,
+    ClusterTrendModel,
+    SourceItemModel,
+    cluster_source_items,
+)
 from app.database.schemas import (
+    ClusterOpportunityStatistics,
     ClusterRunMetadata,
     PersistedCluster,
     PersistedClusterDetails,
@@ -452,6 +459,152 @@ class ClusterRepository:
             )
             models = session.scalars(statement).all()
             return tuple(self._to_persisted_cluster_details(model) for model in models)
+        finally:
+            session.close()
+
+    def save_trends(
+        self,
+        run_id: int,
+        trends: Sequence[ClusterTrend],
+        previous_run_id: int | None,
+    ) -> None:
+        if isinstance(run_id, bool) or not isinstance(run_id, int):
+            raise TypeError("run_id must be an integer")
+        if previous_run_id is not None and (
+            isinstance(previous_run_id, bool) or not isinstance(previous_run_id, int)
+        ):
+            raise TypeError("previous_run_id must be an integer or None")
+        session = self._session_factory()
+        try:
+            run = session.get(ClusterRunModel, run_id)
+            if run is None:
+                raise ValueError(f"cluster run {run_id} does not exist")
+            previous_cluster_ids: set[int] = set()
+            if previous_run_id is not None:
+                previous_run = session.get(ClusterRunModel, previous_run_id)
+                if previous_run is None or previous_run_id == run_id:
+                    raise ValueError("previous cluster run does not exist or is not distinct")
+                if (
+                    previous_run.embedding_model != run.embedding_model
+                    or previous_run.min_cluster_size != run.min_cluster_size
+                    or previous_run.min_samples != run.min_samples
+                    or previous_run.metric != run.metric
+                ):
+                    raise ValueError("previous cluster run is not compatible")
+                previous_cluster_ids = set(
+                    session.scalars(
+                        select(ClusterModel.id).where(ClusterModel.run_id == previous_run_id)
+                    ).all()
+                )
+            cluster_ids = set(
+                session.scalars(select(ClusterModel.id).where(ClusterModel.run_id == run_id)).all()
+            )
+            trends_by_cluster_id: dict[int, ClusterTrend] = {}
+            for trend in trends:
+                if trend.current_cluster_id in trends_by_cluster_id:
+                    raise ValueError("trends must not contain duplicate current_cluster_id values")
+                if trend.current_cluster_id not in cluster_ids:
+                    raise ValueError("trend current_cluster_id does not belong to cluster run")
+                if trend.previous_cluster_id is not None and (
+                    trend.previous_cluster_id not in previous_cluster_ids
+                ):
+                    raise ValueError("trend previous_cluster_id does not belong to compatible run")
+                trends_by_cluster_id[trend.current_cluster_id] = trend
+            if set(trends_by_cluster_id) != cluster_ids:
+                raise ValueError("trends must cover every cluster in the run exactly once")
+            session.add_all(
+                [
+                    ClusterTrendModel(
+                        run_id=run_id,
+                        current_cluster_id=trend.current_cluster_id,
+                        previous_cluster_id=trend.previous_cluster_id,
+                        label=trend.label,
+                        current_count=trend.current_count,
+                        previous_count=trend.previous_count,
+                        absolute_change=trend.absolute_change,
+                        growth_rate=trend.growth_rate,
+                        status=trend.status,
+                        similarity=trend.similarity,
+                    )
+                    for trend in trends_by_cluster_id.values()
+                ]
+            )
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_trends_for_run(self, run_id: int) -> tuple[ClusterTrend, ...]:
+        if isinstance(run_id, bool) or not isinstance(run_id, int):
+            raise TypeError("run_id must be an integer")
+        session = self._session_factory()
+        try:
+            models = session.scalars(
+                select(ClusterTrendModel)
+                .where(ClusterTrendModel.run_id == run_id)
+                .order_by(ClusterTrendModel.current_cluster_id)
+            ).all()
+            return tuple(
+                ClusterTrend(
+                    current_cluster_id=model.current_cluster_id,
+                    previous_cluster_id=model.previous_cluster_id,
+                    label=model.label,
+                    current_count=model.current_count,
+                    previous_count=model.previous_count,
+                    absolute_change=model.absolute_change,
+                    growth_rate=model.growth_rate,
+                    status=model.status,
+                    similarity=model.similarity,
+                )
+                for model in models
+            )
+        finally:
+            session.close()
+
+    def delete_run(self, run_id: int) -> None:
+        if isinstance(run_id, bool) or not isinstance(run_id, int):
+            raise TypeError("run_id must be an integer")
+        session = self._session_factory()
+        try:
+            run = session.get(ClusterRunModel, run_id)
+            if run is not None:
+                session.delete(run)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_opportunity_statistics_for_run(
+        self, run_id: int
+    ) -> tuple[ClusterOpportunityStatistics, ...]:
+        if isinstance(run_id, bool) or not isinstance(run_id, int):
+            raise TypeError("run_id must be an integer")
+        session = self._session_factory()
+        try:
+            statement = (
+                select(
+                    ClusterModel.id,
+                    func.count(func.distinct(SourceItemModel.source)),
+                    func.avg(SourceItemModel.problem_confidence),
+                )
+                .join(cluster_source_items, cluster_source_items.c.cluster_id == ClusterModel.id)
+                .join(SourceItemModel, SourceItemModel.id == cluster_source_items.c.source_item_id)
+                .where(ClusterModel.run_id == run_id)
+                .group_by(ClusterModel.id)
+                .order_by(ClusterModel.id)
+            )
+            return tuple(
+                ClusterOpportunityStatistics(
+                    cluster_id=cluster_id,
+                    source_count=source_count,
+                    average_problem_confidence=float(average_problem_confidence),
+                )
+                for cluster_id, source_count, average_problem_confidence in session.execute(statement)
+            )
         finally:
             session.close()
 

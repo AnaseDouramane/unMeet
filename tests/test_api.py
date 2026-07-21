@@ -21,6 +21,8 @@ from app.api.dependencies import (
     RepositoryAnalyticsReadFacade,
 )
 from app.database.schemas import ClusterRunMetadata, PersistedClusterRunDetails
+from app.database.schemas import ClusterOpportunityStatistics, PersistedClusterDetails
+from app.clustering.schemas import ClusterTrend
 
 
 def _item(
@@ -349,6 +351,10 @@ def test_persisted_empty_run_returns_problem_summary_and_empty_collections() -> 
             assert run_id == 2
             return ()
 
+        def get_trends_for_run(self, run_id: int):
+            assert run_id == 2
+            return ()
+
     class FakeSourceItemRepository:
         def count_problems_by_source(self):
             return (("hackernews", 1),)
@@ -387,3 +393,51 @@ def test_persisted_empty_run_returns_problem_summary_and_empty_collections() -> 
     }
     assert clusters.status_code == 200
     assert clusters.json()["items"] == []
+
+
+def test_repository_reader_serves_all_analytics_endpoints_for_a_valid_two_cluster_run() -> None:
+    latest_run = PersistedClusterRunDetails(
+        11,
+        datetime(2025, 1, 2, tzinfo=UTC),
+        ClusterRunMetadata("model-a", 5, None, "euclidean"),
+    )
+    clusters = (
+        PersistedClusterDetails(101, 11, 4, "manual work", ("manual",), (0.1,), 3),
+        PersistedClusterDetails(102, 11, 9, "support gaps", ("support",), (0.2,), 2),
+    )
+    trends = (
+        ClusterTrend(101, None, "manual work", 3, 0, 3, None, "new", None),
+        ClusterTrend(102, 88, "support gaps", 2, 1, 1, 1.0, "rising", 0.9),
+    )
+
+    class FakeClusterRepository:
+        def find_latest_run(self):
+            return latest_run
+
+        def get_clusters_for_run(self, run_id: int):
+            assert run_id == latest_run.id
+            return clusters
+
+        def get_trends_for_run(self, run_id: int):
+            assert run_id == latest_run.id
+            return trends
+
+        def get_opportunity_statistics_for_run(self, run_id: int):
+            assert run_id == latest_run.id
+            return (
+                ClusterOpportunityStatistics(101, 2, 0.8),
+                ClusterOpportunityStatistics(102, 1, 0.9),
+            )
+
+    class FakeSourceItemRepository:
+        def count_problems_by_source(self):
+            return (("reddit", 5),)
+
+    client = _client(
+        reader=RepositoryAnalyticsReadFacade(FakeClusterRepository(), FakeSourceItemRepository())
+    )
+
+    assert client.get("/api/v1/analytics/summary").status_code == 200
+    assert client.get("/api/v1/opportunities").status_code == 200
+    assert client.get("/api/v1/clusters").status_code == 200
+    assert client.get("/api/v1/trends").status_code == 200
