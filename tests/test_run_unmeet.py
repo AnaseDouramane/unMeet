@@ -1,8 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
-
 from app.analysis.orchestrator import AnalysisRunResult
 from app.clustering.schemas import ClusterTrend
 from app.services.multi_source_ingestion import MultiSourceIngestionResult, SourceIngestionError
@@ -191,21 +189,10 @@ def test_build_application_wires_multiple_connectors_with_factories(monkeypatch)
     )()
     multi_source_kwargs = {}
 
-    hackernews_kwargs = {}
     monkeypatch.setattr(
         run_unmeet,
-        "HackerNewsConnector",
-        lambda **kwargs: hackernews_kwargs.update(kwargs) or connector,
-    )
-    monkeypatch.setattr(
-        run_unmeet.RedditConnector,
-        "from_settings",
-        lambda settings: reddit_connector,
-    )
-    monkeypatch.setattr(
-        run_unmeet.GitHubIssuesConnector,
-        "from_settings",
-        lambda settings: github_connector,
+        "build_configured_connectors",
+        lambda settings: (connector, reddit_connector, github_connector),
     )
     monkeypatch.setattr(run_unmeet, "PreprocessingService", lambda: preprocessing_service)
     monkeypatch.setattr(run_unmeet, "Qwen3ProblemClassifier", lambda: object())
@@ -243,56 +230,6 @@ def test_build_application_wires_multiple_connectors_with_factories(monkeypatch)
     assert multi_source_kwargs["pipeline"] is pipeline
     assert multi_source_kwargs["connectors"] == (connector, reddit_connector, github_connector)
     assert multi_source_kwargs["fail_fast"] is False
-    assert hackernews_kwargs == {"feeds": ("topstories", "newstories"), "limit": 500}
-
-
-@pytest.mark.parametrize(
-    "sources",
-    [
-        ("hackernews", "hackernews"),
-        ("hackernews", "HackerNews"),
-        ("hackernews", " hackernews "),
-    ],
-)
-def test_build_connectors_rejects_duplicate_sources_before_construction(
-    monkeypatch, sources
-) -> None:
-    def unexpected_connector(*args, **kwargs):
-        raise AssertionError("connector construction must not be attempted")
-
-    monkeypatch.setattr(run_unmeet, "HackerNewsConnector", unexpected_connector)
-    settings = type("Settings", (), {"enabled_sources": sources})()
-
-    with pytest.raises(ValueError, match="Duplicate ingestion source: hackernews"):
-        run_unmeet._build_connectors(settings)
-
-
-def test_build_connectors_normalizes_valid_hackernews_and_reddit_sources(monkeypatch) -> None:
-    hackernews = object()
-    reddit = object()
-    github = object()
-    hackernews_kwargs = {}
-    monkeypatch.setattr(
-        run_unmeet,
-        "HackerNewsConnector",
-        lambda **kwargs: hackernews_kwargs.update(kwargs) or hackernews,
-    )
-    monkeypatch.setattr(run_unmeet.RedditConnector, "from_settings", lambda settings: reddit)
-    monkeypatch.setattr(run_unmeet.GitHubIssuesConnector, "from_settings", lambda settings: github)
-    settings = type(
-        "Settings",
-        (),
-        {
-            "enabled_sources": (" HackerNews ", "REDDIT", "GitHub"),
-            "hackernews_feeds": ("beststories",),
-            "hackernews_limit": 9,
-        },
-    )()
-
-    connectors = run_unmeet._build_connectors(settings)
-
-    assert connectors == (hackernews, reddit, github)
-    assert hackernews_kwargs == {"feeds": ("beststories",), "limit": 9}
 
 
 def test_module_has_a_main_guard() -> None:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 from collections import Counter
-from collections.abc import Sequence
 from dataclasses import dataclass
 from time import perf_counter
 
@@ -18,9 +17,7 @@ from app.config import Settings
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.database.schemas import ClusterRunMetadata
 from app.embeddings.embedding_service import EmbeddingService
-from app.ingestion.hackernews import HackerNewsConnector
-from app.ingestion.github import GitHubIssuesConnector
-from app.ingestion.reddit import RedditConnector
+from app.ingestion.factory import build_configured_connectors
 from app.problem_detection.qwen3 import Qwen3ProblemClassifier
 from app.problem_detection.service import ProblemDetectionService
 from app.services.pipeline import Pipeline
@@ -39,7 +36,7 @@ class UnmeetApplication:
 
 
 def build_application(settings: Settings) -> UnmeetApplication:
-    connectors = _build_connectors(settings)
+    connectors = build_configured_connectors(settings)
     preprocessing_service = PreprocessingService()
     classifier = Qwen3ProblemClassifier()
     problem_detection_service = ProblemDetectionService(classifier)
@@ -82,46 +79,6 @@ def build_application(settings: Settings) -> UnmeetApplication:
         analysis_orchestrator=analysis_orchestrator,
         fail_fast=settings.ingestion_fail_fast,
     )
-
-
-def _build_connectors(
-    settings: Settings,
-) -> tuple[HackerNewsConnector | RedditConnector | GitHubIssuesConnector, ...]:
-    connectors: list[HackerNewsConnector | RedditConnector | GitHubIssuesConnector] = []
-    for source in _normalize_enabled_sources(settings.enabled_sources):
-        if source == "hackernews":
-            connectors.append(
-                HackerNewsConnector(
-                    feeds=settings.hackernews_feeds,
-                    limit=settings.hackernews_limit,
-                )
-            )
-        elif source == "reddit":
-            connectors.append(RedditConnector.from_settings(settings))
-        elif source == "github":
-            connectors.append(GitHubIssuesConnector.from_settings(settings))
-        else:
-            raise ValueError(f"Unsupported ingestion source: {source}")
-    if not connectors:
-        raise ValueError("At least one ingestion source must be enabled")
-    return tuple(connectors)
-
-
-def _normalize_enabled_sources(sources: Sequence[str]) -> tuple[str, ...]:
-    if isinstance(sources, (str, bytes)):
-        raise TypeError("enabled_sources must be a sequence of source names")
-
-    normalized_sources: list[str] = []
-    seen_sources: set[str] = set()
-    for source in sources:
-        if not isinstance(source, str) or not source.strip():
-            raise ValueError("enabled source names must be non-empty strings")
-        normalized_source = source.strip().lower()
-        if normalized_source in seen_sources:
-            raise ValueError(f"Duplicate ingestion source: {normalized_source}")
-        seen_sources.add(normalized_source)
-        normalized_sources.append(normalized_source)
-    return tuple(normalized_sources)
 
 
 def main() -> int:
