@@ -2,25 +2,32 @@
 
 ## Stato del sistema
 
-unMeet è una pipeline locale per trasformare contenuti di community pubbliche in documenti normalizzati, embedding tracciabili e input compatibili per clustering semantico.
+unMeet è una pipeline locale per trasformare contenuti di community pubbliche in problemi classificati, embedding tracciabili, cluster semantici e trend confrontabili tra run.
 
-Il run automatico parte da `main.py` e persiste i documenti con il modello di embedding effettivamente usato. Clustering, labeling e persistenza degli snapshot di clustering sono componenti disponibili, ma non sono ancora concatenati automaticamente alla pipeline.
+L'entry point operativo è `scripts/run_unmeet.py`. Costruisce i connettori configurati, esegue l'ingestion in sequenza e avvia l'analisi se almeno una fonte termina con successo. `INGESTION_FAIL_FAST` determina se fermarsi al primo errore di fonte.
 
 ## Pipeline eseguita
 
 ```text
-main.py
+scripts.run_unmeet
+  -> MultiSourceIngestionService
+  -> connector configurati (Hacker News, GitHub Issues, Reddit)
   -> Pipeline
-  -> HackerNewsConnector
   -> SourceItem
   -> PreprocessingService
   -> PreparedDocument
-  -> EmbeddingService.encode
+  -> ProblemDetectionService + Qwen3ProblemClassifier
+  -> [solo problemi] EmbeddingService.encode
   -> SourceItemRepository.save
   -> PostgreSQL + pgvector
+  -> AnalysisOrchestrator
+  -> clustering + labeling
+  -> matching con la run precedente compatibile
+  -> trend detection
+  -> ClusterRepository
 ```
 
-Per ogni documento la pipeline passa a `SourceItemRepository.save()` sia il vettore sia `EmbeddingService.model_name`. Questo collega ogni embedding alla sua provenance e impedisce inserimenti incompleti.
+I contenuti classificati come non-problema sono comunque persistiti, ma senza embedding. Un output malformato del classificatore viene registrato nelle statistiche e trattato in modo conservativo come non-problema. Per ogni problema la pipeline salva vettore, modello, risultato e provenance della classificazione.
 
 ## Embedding e semantic search
 
@@ -65,10 +72,13 @@ Ogni `ClusterRun` conserva uno snapshot dei metadata necessari per interpretare 
 
 `ClusterRunMetadata` e `PersistedClusterRun` sono DTO immutabili. Il repository rifiuta di associare a una run documenti ottenuti con un modello di embedding diverso.
 
-## Componenti non ancora orchestrati
+## API e interfacce
 
-- ingestion Stack Exchange e Reddit;
-- esecuzione automatica del clustering dopo la pipeline;
-- topic labeling e salvataggio cluster nel run principale;
-- market coverage e dashboard collegate ai dati persistiti;
-- trend detection.
+La REST API FastAPI espone health check e risorse sotto `/api/v1` per analytics, opportunità, cluster, trend e ricerca semantica. Il frontend usa `NEXT_PUBLIC_API_BASE_URL`. La dashboard Streamlit è ancora un placeholder locale e non è collegata ai dati persistiti.
+
+## Componenti non ancora integrati nel workflow completo
+
+- connettore Stack Exchange;
+- market coverage GitHub/Product Hunt nell'orchestrazione;
+- schedulazione automatica delle run;
+- migrazioni evolutive dello schema.

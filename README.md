@@ -1,33 +1,44 @@
 # unMeet
 
-unMeet raccoglie problemi espressi in community pubbliche, li normalizza, genera embedding locali e li persiste per analisi semantiche e clustering.
+unMeet raccoglie contenuti da community pubbliche, identifica i problemi espressi, li raggruppa semanticamente e rende disponibili cluster, trend e opportunità tramite API e interfacce locali.
 
 ## Stato attuale
 
-Il flusso eseguito da `main.py` usa Hacker News come fonte attiva e svolge:
+Il workflow completo si avvia con `python -m scripts.run_unmeet` e svolge:
 
-1. ingestion degli story;
+1. ingestion multi-fonte da Hacker News, GitHub Issues e, se configurato, Reddit;
 2. preprocessing e deduplicazione testuale;
-3. generazione di embedding locali con `sentence-transformers`;
-4. persistenza/upsert in PostgreSQL con `pgvector`;
-5. salvataggio della provenance del modello di embedding.
+3. classificazione locale dei contenuti con Qwen3;
+4. archiviazione dei contenuti non-problema;
+5. generazione degli embedding per i problemi identificati;
+6. persistenza/upsert in PostgreSQL con `pgvector`;
+7. clustering HDBSCAN e topic labeling TF-IDF;
+8. confronto con la run compatibile precedente e persistenza dei trend.
 
-La ricerca semantica, il clustering HDBSCAN, il topic labeling TF-IDF e la persistenza degli snapshot di clustering sono disponibili nei rispettivi servizi e repository. Non sono ancora orchestrati automaticamente dal run della pipeline.
+Il comando stampa un riepilogo con record acquisiti, problemi identificati, errori di classificazione, cluster e distribuzione dei trend. `main.py` è mantenuto come alias compatibile dello stesso workflow completo.
 
-Hacker News usa per default i feed `topstories`, `newstories` e `beststories` e restituisce fino a
-500 post unici e validi per run. Configurare `HACKERNEWS_FEEDS` e `HACKERNEWS_LIMIT` nell'ambiente
-(vedi `.env.example`); il limite è globale tra tutti i feed. È supportato anche `askstories` tramite
-l'endpoint Firebase ufficiale `askstories.json`, senza scraping.
+Le fonti sono selezionate, nell'ordine di esecuzione, con `INGESTION_SOURCES`. Sono supportati `hackernews`, `github` e `reddit`; almeno una fonte deve essere abilitata. `INGESTION_FAIL_FAST=false` consente alle fonti successive di proseguire dopo il fallimento di un connettore.
 
-Per una run da 500 post candidati:
+Hacker News usa per default `topstories`, `newstories` e `beststories`, con un limite globale di 500 post unici e validi. È supportato anche `askstories`.
+
+Esempio:
 
 ```bash
-HACKERNEWS_FEEDS=topstories,newstories,beststories HACKERNEWS_LIMIT=500 python -m scripts.run_unmeet
+cp .env.example .env
+docker compose up -d
+python -m scripts.init_db
+python -m scripts.run_unmeet
 ```
 
-## Run locally
+Per ripetere soltanto clustering, labeling e trend sui problemi già persistiti:
 
-Installare prima le dipendenze Python e configurare il database come necessario per il proprio ambiente.
+```bash
+python -m scripts.run_analysis
+```
+
+La prima esecuzione scarica i modelli locali Qwen3 e sentence-transformers. Qwen3 seleziona CUDA quando disponibile e usa altrimenti la CPU.
+
+## Applicazione locale
 
 ### Backend
 
@@ -56,6 +67,8 @@ default le origini locali `localhost:3000` e `127.0.0.1:3000`; in altri ambienti
 
 ## Dashboard
 
+La dashboard Streamlit è al momento un placeholder e non è ancora collegata ai dati persistiti.
+
 ```bash
 streamlit run app/dashboard/app.py
 ```
@@ -70,11 +83,16 @@ pytest
 
 - `app/ingestion`: connettori e schema delle fonti
 - `app/preprocessing`: pulizia, normalizzazione e deduplicazione
+- `app/problem_detection`: classificazione locale problema/non-problema
 - `app/embeddings`: generazione degli embedding locali
 - `app/database`: modelli SQLAlchemy, repository e DTO pubblici
-- `app/clustering`: HDBSCAN, documenti clusterizzabili e topic labeling TF-IDF
-- `app/market`: connettori per market coverage, non ancora integrati nel run
+- `app/clustering`: HDBSCAN, labeling, matching tra run e trend detection
+- `app/analysis`: orchestrazione dell'analisi successiva all'ingestion
+- `app/api`: REST API FastAPI
+- `app/opportunities`: ranking delle opportunità
+- `app/market`: connettori sperimentali per market coverage
 - `app/dashboard`: dashboard locale
 - `app/services`: orchestrazione della pipeline
+- `scripts`: entry point operativi, import/export e valutazione
 - `docs`: documentazione architetturale e operativa
 - `tests`: test automatici
