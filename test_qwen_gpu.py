@@ -17,7 +17,6 @@ def main() -> None:
     print("GPU:", torch.cuda.get_device_name(0), flush=True)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    print("Tokenizer caricato", flush=True)
 
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
