@@ -140,6 +140,7 @@ def _format_summary(
         [
             "unMeet run complete",
             f"Posts acquired: {ingestion_result.acquired_count}",
+            f"Already classified (skipped): {ingestion_result.skipped_count}",
             f"Problems identified: {ingestion_result.problem_count}",
             f"Non-problem posts archived: {ingestion_result.non_problem_count}",
             f"Classification errors: {ingestion_result.classification_error_count}",

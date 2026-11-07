@@ -5,6 +5,7 @@ from app.database.repository import SourceItemRepository
 from app.embeddings.embedding_service import EmbeddingService
 from app.ingestion.hackernews import HackerNewsConnector
 from app.ingestion.base import SourceConnector
+from app.ingestion.schemas import SourceItem
 from app.preprocessing.schemas import PreparedDocument
 from app.problem_detection.service import ProblemDetectionService
 from app.services.preprocessing import PreprocessingService
@@ -17,6 +18,7 @@ class PipelineRunStats:
     non_problem_count: int
     embedding_count: int
     classification_error_count: int
+    skipped_count: int = 0
 
 
 class Pipeline:
@@ -44,10 +46,14 @@ class Pipeline:
         acquired_count = 0
         non_problem_count = 0
         classification_error_count = 0
+        skipped_count = 0
         active_connector = connector or self.connector
         for source_item in active_connector.fetch():
             acquired_count += 1
             prepared_document = self.preprocessing_service.prepare(source_item)
+            if self._is_already_classified(source_item, prepared_document):
+                skipped_count += 1
+                continue
             detection_result = self.problem_detection_service.detect(prepared_document)
             if getattr(
                 self.problem_detection_service, "last_detection_was_malformed_output", False
@@ -77,5 +83,22 @@ class Pipeline:
             non_problem_count=non_problem_count,
             embedding_count=len(accepted_documents),
             classification_error_count=classification_error_count,
+            skipped_count=skipped_count,
         )
         return accepted_documents
+
+    def _is_already_classified(
+        self, source_item: SourceItem, prepared_document: PreparedDocument
+    ) -> bool:
+        """Return True when the same content was already classified in a previous run.
+
+        Re-classifying unchanged items wastes model time (and API cost for hosted models).
+        Edited items, detected through a different dedup hash, are classified again.
+        """
+        lookup = getattr(self.repository, "get_by_source_and_external_id", None)
+        if lookup is None:
+            return False
+        existing = lookup(source_item.source, source_item.external_id)
+        if existing is None or existing.is_problem is None:
+            return False
+        return existing.dedup_hash == prepared_document.dedup_hash

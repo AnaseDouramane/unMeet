@@ -339,3 +339,61 @@ def test_pipeline_continues_after_a_semantically_invalid_output_then_valid_outpu
     assert embedding_service.calls == [accepted_documents[0].document_text]
     assert pipeline.last_run_stats is not None
     assert pipeline.last_run_stats.classification_error_count == 1
+
+
+class ExistingItemsRepository(FakeRepository):
+    """Repository fake that reports some items as already classified."""
+
+    def __init__(self, classified: dict[str, str | None]) -> None:
+        super().__init__()
+        self._classified = classified
+        self.lookups: list[tuple[str, str]] = []
+
+    def get_by_source_and_external_id(self, source: str, external_id: str):
+        self.lookups.append((source, external_id))
+        if external_id not in self._classified:
+            return None
+        return type(
+            "Persisted",
+            (),
+            {"is_problem": True, "dedup_hash": self._classified[external_id]},
+        )()
+
+
+def _pipeline_with(repository, detection_service, connector=None) -> Pipeline:
+    return Pipeline(
+        settings=type("SettingsStub", (), {"environment": "test"})(),
+        connector=connector or FakeMixedConnector(),
+        preprocessing_service=PreprocessingService(),
+        repository=repository,
+        embedding_service=FakeEmbeddingService(),
+        problem_detection_service=detection_service,
+    )
+
+
+def test_pipeline_skips_items_already_classified_with_same_content() -> None:
+    hash_of_item_1 = PreprocessingService().prepare(_source_item(1)).dedup_hash
+    repository = ExistingItemsRepository({"1": hash_of_item_1})
+    detection = FakeProblemDetectionService([_result(True), _result(True)])
+    pipeline = _pipeline_with(repository, detection)
+
+    documents = pipeline.run()
+
+    assert [document.source_item.external_id for document in documents] == ["0", "2"]
+    assert len(detection.calls) == 2
+    assert [saved[0].external_id for saved in repository.saved] == ["0", "2"]
+    assert pipeline.last_run_stats is not None
+    assert pipeline.last_run_stats.acquired_count == 3
+    assert pipeline.last_run_stats.skipped_count == 1
+
+
+def test_pipeline_reclassifies_items_whose_content_changed() -> None:
+    repository = ExistingItemsRepository({"1": "stale-hash"})
+    detection = FakeProblemDetectionService([_result(True)] * 3)
+    pipeline = _pipeline_with(repository, detection)
+
+    pipeline.run()
+
+    assert len(detection.calls) == 3
+    assert pipeline.last_run_stats is not None
+    assert pipeline.last_run_stats.skipped_count == 0
