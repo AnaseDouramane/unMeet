@@ -89,7 +89,9 @@ class SourceItemModel(Base):
     classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     signal_intent: Mapped[str | None] = mapped_column(String(32), nullable=True)
     pain_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
-    products_mentioned: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    products_mentioned: Mapped[list[str] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
     signal_severity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String(255), nullable=True)

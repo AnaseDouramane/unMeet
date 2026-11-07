@@ -104,3 +104,106 @@ def test_signal_fields_are_persisted(session_factory: sessionmaker[Session]) -> 
     assert saved.pain_quote == "keep landing in spam"
     assert saved.products_mentioned == ("HubSpot",)
     assert saved.signal_severity == 3
+
+
+def _save_signal(
+    repository: SourceItemRepository,
+    external_id: str,
+    *,
+    axis: int,
+    intent: str = "pain_point",
+    products: tuple[str, ...] = (),
+    severity: int = 2,
+    day: int = 1,
+    source: str = "hackernews",
+) -> None:
+    item = SourceItem(
+        external_id=external_id,
+        source=source,
+        title=f"Signal {external_id}",
+        body="",
+        url=f"https://example.test/{external_id}",
+        author="carol",
+        published_at=datetime(2026, 11, day, tzinfo=UTC),
+        engagement_score=None,
+        raw_payload=None,
+    )
+    result = ProblemDetectionResult(
+        is_problem=True,
+        confidence=0.8,
+        reason="test",
+        classifier_name="test-classifier",
+        intent=intent,  # type: ignore[arg-type]
+        pain_quote=f"quote {external_id}",
+        products_mentioned=products,
+        severity=severity,
+    )
+    repository.save(item, PreprocessingService().prepare(item), _unit(axis), MODEL, result)
+
+
+def test_find_signals_filters_by_intent_product_severity_and_date(
+    session_factory: sessionmaker[Session],
+) -> None:
+    from app.signals.schemas import SignalQuery
+
+    repository = SourceItemRepository(session_factory)
+    _save_signal(repository, "a", axis=0, intent="competitor_complaint", products=("HubSpot",), day=3)
+    _save_signal(repository, "b", axis=0, intent="pain_point", products=("Salesforce",), day=4)
+    _save_signal(repository, "c", axis=0, intent="competitor_complaint", products=("hubspot",), severity=1, day=5)
+    _save_signal(repository, "d", axis=0, intent="solution_search", day=6, source="reddit")
+
+    def ids(**filters) -> list[str]:
+        return [s.external_id for s in repository.find_signals(SignalQuery(**filters))]
+
+    assert ids() == ["d", "c", "b", "a"]
+    assert ids(intents=("competitor_complaint",)) == ["c", "a"]
+    assert ids(products=("HUBSPOT",)) == ["c", "a"]
+    assert ids(products=("HubSpot",), min_severity=2) == ["a"]
+    assert ids(sources=("reddit",)) == ["d"]
+    assert ids(published_since=datetime(2026, 11, 5, tzinfo=UTC)) == ["d", "c"]
+    assert ids(limit=2, offset=1) == ["c", "b"]
+
+
+def test_find_signals_by_topic_embedding_orders_by_similarity_with_threshold(
+    session_factory: sessionmaker[Session],
+) -> None:
+    from app.signals.schemas import SignalQuery
+
+    repository = SourceItemRepository(session_factory)
+    _save_signal(repository, "exact", axis=0)
+    _save_signal(repository, "orthogonal", axis=1)
+    near = [0.0] * 384
+    near[0], near[1] = 0.8, 0.6
+
+    signals = repository.find_signals(
+        SignalQuery(query_embedding=near, embedding_model=MODEL, max_distance=0.5)
+    )
+
+    assert [s.external_id for s in signals] == ["exact", "orthogonal"]
+    assert signals[0].similarity == 0.8
+    assert signals[0].pain_quote == "quote exact"
+    strict = repository.find_signals(
+        SignalQuery(query_embedding=near, embedding_model=MODEL, max_distance=0.3)
+    )
+    assert [s.external_id for s in strict] == ["exact"]
+
+
+def test_product_filter_tolerates_legacy_json_null_rows(
+    session_factory: sessionmaker[Session],
+) -> None:
+    from sqlalchemy import text
+
+    from app.signals.schemas import SignalQuery
+
+    repository = SourceItemRepository(session_factory)
+    _save_signal(repository, "legacy", axis=0)
+    _save_signal(repository, "tagged", axis=0, products=("Notion",))
+    with session_factory() as session:
+        session.execute(
+            text("UPDATE source_items SET products_mentioned = 'null'::jsonb WHERE external_id = 'legacy'")
+        )
+        session.commit()
+
+    signals = repository.find_signals(SignalQuery(products=("notion",)))
+
+    assert [s.external_id for s in signals] == ["tagged"]

@@ -6,7 +6,9 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, case, exists, func, literal, select
+from sqlalchemy import cast as sql_cast
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.clustering.schemas import ClusterableDocument, ClusterTrend, TrendStatus
@@ -32,6 +34,7 @@ from app.ingestion.schemas import SourceItem
 from app.preprocessing.schemas import PreparedDocument
 from app.problem_detection.schemas import ProblemDetectionResult
 from app.problem_detection.service import validate_problem_detection_result
+from app.signals.schemas import Signal, SignalQuery
 
 if TYPE_CHECKING:
     from app.clustering.service import DocumentCluster
@@ -124,6 +127,87 @@ class SourceItemRepository:
             return [self._to_clusterable_document(model) for model in models]
         finally:
             self._close_session(session)
+
+    def find_signals(self, query: SignalQuery) -> tuple[Signal, ...]:
+        """Return classified problems matching the signal filters.
+
+        Product filters match case-insensitively against any mentioned product. With a query
+        embedding, results are limited to ``max_distance`` and ordered by similarity;
+        otherwise by publication date, newest first.
+        """
+        filters: list[ColumnElement[bool]] = [SourceItemModel.is_problem.is_(True)]
+        if query.intents:
+            filters.append(SourceItemModel.signal_intent.in_(query.intents))
+        if query.sources:
+            filters.append(SourceItemModel.source.in_(query.sources))
+        if query.min_severity is not None:
+            filters.append(SourceItemModel.signal_severity >= query.min_severity)
+        if query.published_since is not None:
+            filters.append(SourceItemModel.published_at >= query.published_since)
+        if query.products:
+            # Rows written before none_as_null may hold a JSON null scalar; treat it as [].
+            products_array = case(
+                (
+                    func.jsonb_typeof(SourceItemModel.products_mentioned) == "array",
+                    SourceItemModel.products_mentioned,
+                ),
+                else_=sql_cast(literal("[]"), JSONB),
+            )
+            product = func.jsonb_array_elements_text(products_array).table_valued("value")
+            filters.append(
+                exists(
+                    select(1)
+                    .select_from(product)
+                    .where(func.lower(product.c.value).in_([p.lower() for p in query.products]))
+                )
+            )
+
+        distance = None
+        if query.query_embedding is not None:
+            normalized = self._normalize_embedding(query.query_embedding)
+            assert normalized is not None
+            distance = SourceItemModel.embedding.cosine_distance(normalized)
+            filters.append(SourceItemModel.embedding_model == query.embedding_model)
+            filters.append(SourceItemModel.embedding.is_not(None))
+            filters.append(distance <= query.max_distance)
+
+        columns = [SourceItemModel] + ([distance.label("distance")] if distance is not None else [])
+        statement = select(*columns).where(*filters)
+        if distance is not None:
+            statement = statement.order_by(distance, SourceItemModel.id)
+        else:
+            statement = statement.order_by(
+                SourceItemModel.published_at.desc(), SourceItemModel.id.desc()
+            )
+        statement = statement.offset(query.offset).limit(query.limit)
+
+        session = self._open_session()
+        try:
+            rows = session.execute(statement).all()
+            return tuple(
+                self._to_signal(row[0], None if distance is None else float(row[1]))
+                for row in rows
+            )
+        finally:
+            self._close_session(session)
+
+    @staticmethod
+    def _to_signal(model: SourceItemModel, distance: float | None) -> Signal:
+        return Signal(
+            id=model.id,
+            source=model.source,
+            external_id=model.external_id,
+            title=model.clean_title or model.title,
+            url=model.url,
+            author=model.author,
+            published_at=model.published_at,
+            intent=model.signal_intent,
+            pain_quote=model.pain_quote,
+            products_mentioned=tuple(model.products_mentioned or ()),
+            severity=model.signal_severity,
+            confidence=float(model.problem_confidence or 0.0),
+            similarity=None if distance is None else round(1.0 - distance, 4),
+        )
 
     def count_problems_by_source(self) -> tuple[tuple[str, int], ...]:
         session = self._open_session()
