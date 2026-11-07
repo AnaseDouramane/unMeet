@@ -23,6 +23,8 @@ class SourceIngestionStats:
     embedding_count: int
     classification_error_count: int
     skipped_count: int = 0
+    gated_out_count: int = 0
+    llm_call_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,14 @@ class MultiSourceIngestionResult:
     @property
     def skipped_count(self) -> int:
         return sum(item.skipped_count for item in self.source_stats)
+
+    @property
+    def gated_out_count(self) -> int:
+        return sum(item.gated_out_count for item in self.source_stats)
+
+    @property
+    def llm_call_count(self) -> int:
+        return sum(item.llm_call_count for item in self.source_stats)
 
 
 class MultiSourceIngestionService:
@@ -110,4 +120,6 @@ class MultiSourceIngestionService:
             embedding_count=stats.embedding_count,
             classification_error_count=stats.classification_error_count,
             skipped_count=stats.skipped_count,
+            gated_out_count=stats.gated_out_count,
+            llm_call_count=stats.llm_call_count,
         )

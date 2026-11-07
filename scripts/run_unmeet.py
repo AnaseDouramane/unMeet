@@ -26,6 +26,8 @@ from app.services.multi_source_ingestion import (
 )
 from app.services.pipeline import Pipeline
 from app.services.preprocessing import PreprocessingService
+from app.topics.gate import TopicGate
+from app.topics.repository import TopicRepository
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,11 @@ def build_application(settings: Settings) -> UnmeetApplication:
     problem_detection_service = ProblemDetectionService(classifier)
     embedding_service = EmbeddingService(model_name=settings.embedding_model)
     source_item_repository = SourceItemRepository()
+    topic_gate = (
+        TopicGate(TopicRepository().list, embedding_service)
+        if getattr(settings, "topic_gate_enabled", False)
+        else None
+    )
     pipeline = Pipeline(
         settings=settings,
         connector=connectors[0],
@@ -50,6 +57,7 @@ def build_application(settings: Settings) -> UnmeetApplication:
         embedding_service=embedding_service,
         problem_detection_service=problem_detection_service,
         classification_workers=getattr(settings, "classification_workers", 1),
+        topic_gate=topic_gate,
     )
 
     clusterer = HDBSCANClusterer.for_text_embeddings()
@@ -142,6 +150,8 @@ def _format_summary(
             "unMeet run complete",
             f"Posts acquired: {ingestion_result.acquired_count}",
             f"Already classified (skipped): {ingestion_result.skipped_count}",
+            f"Filtered out before the LLM (no topic match): {ingestion_result.gated_out_count}",
+            f"LLM classification calls: {ingestion_result.llm_call_count}",
             f"Problems identified: {ingestion_result.problem_count}",
             f"Non-problem posts archived: {ingestion_result.non_problem_count}",
             f"Classification errors: {ingestion_result.classification_error_count}",
