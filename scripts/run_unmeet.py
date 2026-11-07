@@ -51,7 +51,7 @@ def build_application(settings: Settings) -> UnmeetApplication:
         problem_detection_service=problem_detection_service,
     )
 
-    clusterer = HDBSCANClusterer()
+    clusterer = HDBSCANClusterer.for_text_embeddings()
     clustering_service = ClusteringService(source_item_repository, clusterer)
     topic_labeling_service = TopicLabelingService()
     cluster_repository = ClusterRepository()
@@ -67,7 +67,7 @@ def build_application(settings: Settings) -> UnmeetApplication:
             embedding_model=embedding_service.model_name,
             min_cluster_size=clusterer.min_cluster_size,
             min_samples=clusterer.min_samples,
-            metric=clusterer.metric,
+            metric=clusterer.run_metric,
         ),
     )
     return UnmeetApplication(

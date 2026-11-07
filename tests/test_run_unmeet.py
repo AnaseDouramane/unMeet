@@ -185,7 +185,7 @@ def test_build_application_wires_multiple_connectors_with_factories(monkeypatch)
     clusterer = type(
         "Clusterer",
         (),
-        {"min_cluster_size": 5, "min_samples": None, "metric": "euclidean"},
+        {"min_cluster_size": 5, "min_samples": None, "run_metric": "euclidean"},
     )()
     multi_source_kwargs = {}
 
@@ -200,7 +200,11 @@ def test_build_application_wires_multiple_connectors_with_factories(monkeypatch)
     monkeypatch.setattr(run_unmeet, "EmbeddingService", lambda model_name: embedding_service)
     monkeypatch.setattr(run_unmeet, "SourceItemRepository", lambda: object())
     monkeypatch.setattr(run_unmeet, "Pipeline", lambda **kwargs: pipeline)
-    monkeypatch.setattr(run_unmeet, "HDBSCANClusterer", lambda: clusterer)
+    monkeypatch.setattr(
+        run_unmeet,
+        "HDBSCANClusterer",
+        type("ClustererFactory", (), {"for_text_embeddings": staticmethod(lambda: clusterer)}),
+    )
     monkeypatch.setattr(run_unmeet, "ClusteringService", lambda repository, clusterer: object())
     monkeypatch.setattr(run_unmeet, "TopicLabelingService", lambda: object())
     monkeypatch.setattr(run_unmeet, "ClusterRepository", lambda: object())

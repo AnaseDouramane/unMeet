@@ -64,3 +64,78 @@ def test_fit_predict_calls_hdbscan_when_documents_are_sufficient(monkeypatch) ->
         "metric": "manhattan",
         "prediction_data": True,
     }
+
+
+class RecordingReducer:
+    n_components = 2
+
+    def __init__(self) -> None:
+        self.inputs: list[np.ndarray] = []
+
+    def fit_transform(self, data: np.ndarray) -> np.ndarray:
+        self.inputs.append(data)
+        return data[:, : self.n_components]
+
+
+def test_normalisation_scales_vectors_to_unit_length(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "hdbscan", SimpleNamespace(HDBSCAN=FakeHDBSCAN))
+    embeddings = np.array([[3.0, 4.0], [0.0, 2.0], [0.0, 0.0]])
+
+    HDBSCANClusterer(min_cluster_size=2, normalize=True).fit_predict(embeddings)
+
+    features = FakeHDBSCAN.instances[0].embeddings
+    assert np.allclose(features, [[0.6, 0.8], [0.0, 1.0], [0.0, 0.0]])
+
+
+def test_reducer_output_is_clustered_when_corpus_is_large_enough(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "hdbscan", SimpleNamespace(HDBSCAN=FakeHDBSCAN))
+    reducer = RecordingReducer()
+    embeddings = np.arange(20, dtype=float).reshape(5, 4)
+
+    HDBSCANClusterer(min_cluster_size=2, reducer=reducer).fit_predict(embeddings)
+
+    assert len(reducer.inputs) == 1
+    assert FakeHDBSCAN.instances[0].embeddings.shape == (5, 2)
+
+
+def test_reducer_is_skipped_for_tiny_corpora(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "hdbscan", SimpleNamespace(HDBSCAN=FakeHDBSCAN))
+    reducer = RecordingReducer()
+
+    HDBSCANClusterer(min_cluster_size=2, reducer=reducer).fit_predict(np.ones((3, 4)))
+
+    assert reducer.inputs == []
+
+
+def test_run_metric_signature_describes_preprocessing() -> None:
+    assert HDBSCANClusterer().run_metric == "euclidean"
+    assert HDBSCANClusterer.for_text_embeddings().run_metric == "l2+umap10n15+euclidean"
+    assert len(HDBSCANClusterer.for_text_embeddings().run_metric) <= 50
+
+
+def _topic_corpus(seed: int = 7) -> tuple[np.ndarray, np.ndarray]:
+    """Three topics on the unit sphere in 384 dimensions, with realistic per-document noise."""
+    rng = np.random.default_rng(seed)
+    centres = rng.normal(size=(3, 384))
+    vectors, labels = [], []
+    for topic, centre in enumerate(centres):
+        centre = centre / np.linalg.norm(centre)
+        for _ in range(40):
+            noise = rng.normal(scale=0.06, size=384)
+            vectors.append(centre + noise)
+            labels.append(topic)
+    return np.asarray(vectors), np.asarray(labels)
+
+
+def test_text_embedding_configuration_recovers_topics_on_real_backends() -> None:
+    pytest.importorskip("umap")
+    pytest.importorskip("hdbscan")
+    from sklearn.metrics import adjusted_rand_score
+
+    embeddings, truth = _topic_corpus()
+
+    _, labels = HDBSCANClusterer.for_text_embeddings().fit_predict(embeddings)
+
+    clustered = labels != -1
+    assert clustered.mean() >= 0.9
+    assert adjusted_rand_score(truth[clustered], labels[clustered]) >= 0.95

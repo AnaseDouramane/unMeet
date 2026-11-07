@@ -26,7 +26,7 @@ class AnalysisApplication:
 
 def build_application(settings: Settings) -> AnalysisApplication:
     source_item_repository = SourceItemRepository()
-    clusterer = HDBSCANClusterer()
+    clusterer = HDBSCANClusterer.for_text_embeddings()
     analysis_orchestrator = AnalysisOrchestrator(
         clustering_service=ClusteringService(source_item_repository, clusterer),
         topic_labeling_service=TopicLabelingService(),
@@ -37,7 +37,7 @@ def build_application(settings: Settings) -> AnalysisApplication:
             embedding_model=settings.embedding_model,
             min_cluster_size=clusterer.min_cluster_size,
             min_samples=clusterer.min_samples,
-            metric=clusterer.metric,
+            metric=clusterer.run_metric,
         ),
     )
     return AnalysisApplication(
