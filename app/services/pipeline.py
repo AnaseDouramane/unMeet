@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -9,7 +9,7 @@ from app.ingestion.base import SourceConnector
 from app.ingestion.hackernews import HackerNewsConnector
 from app.ingestion.schemas import SourceItem
 from app.preprocessing.schemas import PreparedDocument
-from app.problem_detection.schemas import ProblemDetectionResult
+from app.problem_detection.schemas import ProblemDetectionResult, TopicContext
 from app.problem_detection.service import ProblemDetectionService
 from app.services.preprocessing import PreprocessingService
 from app.topics.gate import GATE_CLASSIFIER_NAME, GateDecision, TopicGate
@@ -127,8 +127,15 @@ class Pipeline:
             for (_, document), decision in zip(batch, decisions, strict=True)
             if decision is None or decision.passed
         ]
+        topics_to_classify: list[tuple[TopicContext, ...]] = [
+            self.topic_gate.topic_contexts(decision.matched_topic_ids)
+            if self.topic_gate is not None and decision is not None
+            else ()
+            for decision in decisions
+            if decision is None or decision.passed
+        ]
         requests_before = getattr(self.problem_detection_service, "llm_request_count", None)
-        classified = iter(list(self._classify(iter(to_classify))))
+        classified = iter(list(self._classify(iter(to_classify), topics_to_classify)))
         requests_after = getattr(self.problem_detection_service, "llm_request_count", None)
         if isinstance(requests_before, int) and isinstance(requests_after, int):
             self._counts["llm_calls"] += requests_after - requests_before
@@ -175,13 +182,20 @@ class Pipeline:
             self._counts["non_problem"] += 1
 
     def _classify(
-        self, documents: Iterator[PreparedDocument]
+        self,
+        documents: Iterator[PreparedDocument],
+        topics: Sequence[tuple[TopicContext, ...]] = (),
     ) -> Iterator[tuple[ProblemDetectionResult, bool]]:
         """Classify documents in input order, concurrently when workers are configured.
 
         API-backed classifiers spend most of their time waiting on the network, so a small
         thread pool gives a near-linear speed-up while results stay in source order.
         """
+        if any(topics) and getattr(
+            self.problem_detection_service, "supports_topic_matching", False
+        ):
+            yield from self._classify_with_topics(list(documents), topics)
+            return
         batch_detect = getattr(self.problem_detection_service, "detect_batch_with_status", None)
         if (
             self.classification_batch_size > 1
@@ -206,12 +220,37 @@ class Pipeline:
         with ThreadPoolExecutor(max_workers=self.classification_workers) as executor:
             yield from executor.map(concurrent_detect, documents)
 
+    def _classify_with_topics(
+        self,
+        documents: list[PreparedDocument],
+        topics: Sequence[tuple[TopicContext, ...]],
+    ) -> Iterator[tuple[ProblemDetectionResult, bool]]:
+        """Classify documents together with the candidate topics the gate found for each."""
+        service = self.problem_detection_service
+        size = self.classification_batch_size if getattr(service, "supports_batching", False) else 1
+        jobs = [
+            (documents[start : start + size], list(topics[start : start + size]))
+            for start in range(0, len(documents), size)
+        ]
+
+        def run(job: tuple[list[PreparedDocument], list[tuple[TopicContext, ...]]]):
+            chunk, chunk_topics = job
+            if size > 1:
+                return service.detect_batch_with_status(chunk, chunk_topics)
+            return [service.detect_with_status(chunk[0], chunk_topics[0])]
+
+        if self.classification_workers == 1 or len(jobs) <= 1:
+            for job in jobs:
+                yield from run(job)
+            return
+        with ThreadPoolExecutor(max_workers=self.classification_workers) as executor:
+            for results in executor.map(run, jobs):
+                yield from results
+
     def _classify_in_batches(
         self,
         documents: Iterator[PreparedDocument],
-        batch_detect: Callable[
-            [list[PreparedDocument]], list[tuple[ProblemDetectionResult, bool]]
-        ],
+        batch_detect: Callable[[list[PreparedDocument]], list[tuple[ProblemDetectionResult, bool]]],
     ) -> Iterator[tuple[ProblemDetectionResult, bool]]:
         """Send documents to the model several per request, keeping input order."""
         pending = list(documents)

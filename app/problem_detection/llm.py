@@ -148,6 +148,8 @@ LLMClassifierError = LLMRequestError
 
 
 class OpenAICompatibleSignalClassifier:
+    supports_topic_matching = True
+
     def __init__(
         self,
         model: str,

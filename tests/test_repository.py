@@ -76,6 +76,8 @@ class FakeSession:
 
     def execute(self, statement):
         self.execute_statements.append(statement)
+        if statement.__class__.__name__ == "Delete":
+            return None  # replacing an existing item's topic matches
         if not self.execute_results:
             raise AssertionError(f"Unexpected execute call: {statement}")
         return self.execute_results.pop(0)

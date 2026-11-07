@@ -348,7 +348,9 @@ class SourceItemRepository:
 
             if existing is None:
                 session.add(model)
-            if normalized_problem_result is not None:
+            if normalized_problem_result is not None and (
+                existing is not None or normalized_problem_result.topic_matches
+            ):
                 session.flush()
                 self._replace_topic_matches(session, model.id, normalized_problem_result)
             session.commit()
