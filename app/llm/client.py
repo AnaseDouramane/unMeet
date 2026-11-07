@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -51,6 +52,14 @@ class ChatCompletionsClient:
         self.max_retries = max_retries
         self._session = session or requests.Session()
         self._sleep = sleep
+        self._request_count = 0
+        self._count_lock = threading.Lock()
+
+    @property
+    def request_count(self) -> int:
+        """Completions requested so far (retries of one request are not counted)."""
+        with self._count_lock:
+            return self._request_count
 
     def complete(
         self,
@@ -63,6 +72,8 @@ class ChatCompletionsClient:
         Timeouts, connection errors and HTTP 408/409/429/5xx are retried with exponential
         backoff (honouring ``Retry-After``); other HTTP errors fail immediately.
         """
+        with self._count_lock:
+            self._request_count += 1
         body: dict[str, Any] = {
             "model": self.model,
             "temperature": temperature,

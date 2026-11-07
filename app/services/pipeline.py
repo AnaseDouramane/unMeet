@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -38,6 +38,7 @@ class Pipeline:
         repository: SourceItemRepository,
         classification_workers: int = 1,
         topic_gate: TopicGate | None = None,
+        classification_batch_size: int = 1,
     ) -> None:
         if (
             isinstance(classification_workers, bool)
@@ -51,7 +52,14 @@ class Pipeline:
         self.repository = repository
         self.embedding_service = embedding_service
         self.problem_detection_service = problem_detection_service
+        if (
+            isinstance(classification_batch_size, bool)
+            or not isinstance(classification_batch_size, int)
+            or classification_batch_size <= 0
+        ):
+            raise ValueError("classification_batch_size must be a positive integer")
         self.classification_workers = classification_workers
+        self.classification_batch_size = classification_batch_size
         self.topic_gate = topic_gate
         self.last_run_stats: PipelineRunStats | None = None
         self._accepted: list[PreparedDocument] = []
@@ -119,8 +127,13 @@ class Pipeline:
             for (_, document), decision in zip(batch, decisions, strict=True)
             if decision is None or decision.passed
         ]
-        self._counts["llm_calls"] += len(to_classify)
-        classified = iter(self._classify(iter(to_classify)))
+        requests_before = getattr(self.problem_detection_service, "llm_request_count", None)
+        classified = iter(list(self._classify(iter(to_classify))))
+        requests_after = getattr(self.problem_detection_service, "llm_request_count", None)
+        if isinstance(requests_before, int) and isinstance(requests_after, int):
+            self._counts["llm_calls"] += requests_after - requests_before
+        else:
+            self._counts["llm_calls"] += len(to_classify)
         for (source_item, prepared_document), decision in zip(batch, decisions, strict=True):
             if decision is not None and not decision.passed:
                 self._counts["gated_out"] += 1
@@ -169,6 +182,14 @@ class Pipeline:
         API-backed classifiers spend most of their time waiting on the network, so a small
         thread pool gives a near-linear speed-up while results stay in source order.
         """
+        batch_detect = getattr(self.problem_detection_service, "detect_batch_with_status", None)
+        if (
+            self.classification_batch_size > 1
+            and callable(batch_detect)
+            and getattr(self.problem_detection_service, "supports_batching", False)
+        ):
+            yield from self._classify_in_batches(documents, batch_detect)
+            return
         concurrent_detect = getattr(self.problem_detection_service, "detect_with_status", None)
         if self.classification_workers == 1 or concurrent_detect is None:
             for document in documents:
@@ -184,6 +205,25 @@ class Pipeline:
             return
         with ThreadPoolExecutor(max_workers=self.classification_workers) as executor:
             yield from executor.map(concurrent_detect, documents)
+
+    def _classify_in_batches(
+        self,
+        documents: Iterator[PreparedDocument],
+        batch_detect: Callable[
+            [list[PreparedDocument]], list[tuple[ProblemDetectionResult, bool]]
+        ],
+    ) -> Iterator[tuple[ProblemDetectionResult, bool]]:
+        """Send documents to the model several per request, keeping input order."""
+        pending = list(documents)
+        size = self.classification_batch_size
+        chunks = [pending[start : start + size] for start in range(0, len(pending), size)]
+        if self.classification_workers == 1 or len(chunks) <= 1:
+            for chunk in chunks:
+                yield from batch_detect(chunk)
+            return
+        with ThreadPoolExecutor(max_workers=self.classification_workers) as executor:
+            for results in executor.map(batch_detect, chunks):
+                yield from results
 
     def _is_already_classified(
         self, source_item: SourceItem, prepared_document: PreparedDocument

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Sequence
 from numbers import Real
 
 from app.preprocessing.schemas import PreparedDocument
@@ -56,6 +57,45 @@ class ProblemDetectionService:
                 ),
                 True,
             )
+
+    @property
+    def supports_batching(self) -> bool:
+        return callable(getattr(self._classifier, "classify_batch", None))
+
+    @property
+    def llm_request_count(self) -> int | None:
+        """Requests the classifier sent to its provider, or None when it does not track them."""
+        count = getattr(self._classifier, "request_count", None)
+        return count if isinstance(count, int) else None
+
+    def detect_batch_with_status(
+        self, prepared_documents: Sequence[PreparedDocument]
+    ) -> list[tuple[ProblemDetectionResult, bool]]:
+        """Classify several documents with one request where the classifier supports it.
+
+        Items the model skipped or answered invalidly are classified again one by one, so a
+        flaky batch costs extra requests but never loses or mislabels a document. Without batch
+        support this is a plain loop over :meth:`detect_with_status`. Thread-safe.
+        """
+        documents = list(prepared_documents)
+        batch_classify = getattr(self._classifier, "classify_batch", None)
+        if not callable(batch_classify) or len(documents) <= 1:
+            return [self.detect_with_status(document) for document in documents]
+        for document in documents:
+            self._validate_document_text(document.document_text)
+        outcomes = batch_classify([document.document_text for document in documents])
+        if len(outcomes) != len(documents):
+            outcomes = [MalformedClassifierOutputError("batch size mismatch")] * len(documents)
+        results: list[tuple[ProblemDetectionResult, bool]] = []
+        for document, outcome in zip(documents, outcomes, strict=True):
+            if isinstance(outcome, MalformedClassifierOutputError):
+                results.append(self.detect_with_status(document))
+                continue
+            try:
+                results.append((validate_problem_detection_result(outcome), False))
+            except (TypeError, ValueError):
+                results.append(self.detect_with_status(document))
+        return results
 
     def _classifier_name(self) -> str:
         classifier_name = getattr(self._classifier, "classifier_name", None)

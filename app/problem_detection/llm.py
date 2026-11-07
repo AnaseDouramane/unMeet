@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from numbers import Real
 from typing import Any
 
@@ -87,6 +87,38 @@ SIGNAL_JSON_SCHEMA: dict[str, Any] = {
     },
 }
 
+BATCH_SYSTEM_PROMPT = (
+    SYSTEM_PROMPT.replace(
+        "Answer with one JSON object only.",
+        "",
+    ).rstrip()
+    + """
+You receive several texts, each introduced by a header like "### Text 3". Analyse every text
+independently, using only that text. Answer with one JSON object of the form
+{"results": [...]} holding exactly one entry per text, each with the fields above plus "index"
+set to the text number from its header."""
+)
+
+BATCH_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["results"],
+    "properties": {
+        "results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["index", *SIGNAL_JSON_SCHEMA["required"]],
+                "properties": {
+                    "index": {"type": "integer", "minimum": 0},
+                    **SIGNAL_JSON_SCHEMA["properties"],
+                },
+            },
+        }
+    },
+}
+
 _MAX_QUOTE_LENGTH = 200
 _MAX_PRODUCTS = 10
 
@@ -103,12 +135,15 @@ class OpenAICompatibleSignalClassifier:
         timeout_seconds: float = 30.0,
         max_retries: int = 4,
         max_document_chars: int = 6000,
+        batch_max_document_chars: int = 2000,
         use_json_schema: bool = True,
         session: requests.Session | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         if max_document_chars <= 0:
             raise ValueError("max_document_chars must be positive")
+        if batch_max_document_chars <= 0:
+            raise ValueError("batch_max_document_chars must be positive")
         self._client = ChatCompletionsClient(
             model=model,
             base_url=base_url,
@@ -121,6 +156,7 @@ class OpenAICompatibleSignalClassifier:
         self.model = self._client.model
         self.base_url = self._client.base_url
         self.max_document_chars = max_document_chars
+        self.batch_max_document_chars = batch_max_document_chars
         self.use_json_schema = use_json_schema
 
     @property
@@ -147,11 +183,68 @@ class OpenAICompatibleSignalClassifier:
             raise MalformedClassifierOutputError(str(error)) from error
         return self._to_result(payload, text)
 
-    def _response_format(self) -> dict[str, Any]:
+    @property
+    def request_count(self) -> int:
+        return self._client.request_count
+
+    def classify_batch(
+        self, document_texts: Sequence[str]
+    ) -> list[ProblemDetectionResult | MalformedClassifierOutputError]:
+        """Classify several documents in one request.
+
+        Returns one entry per input, in order. An entry is a
+        :class:`MalformedClassifierOutputError` when the model skipped that text or returned an
+        invalid answer for it, so the caller can retry only those items. Quotes are verified
+        against their own text, exactly as in :meth:`classify`.
+        """
+        texts = list(document_texts)
+        if not texts:
+            return []
+        for text in texts:
+            if not isinstance(text, str):
+                raise TypeError("document_text must be a string")
+            if not text.strip():
+                raise ValueError("document_text must not be empty")
+        truncated = [text[: self.batch_max_document_chars] for text in texts]
+        prompt = "\n\n".join(f"### Text {i}\n{text}" for i, text in enumerate(truncated))
+        try:
+            content = self._client.complete(
+                messages=[
+                    {"role": "system", "content": BATCH_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                response_format=self._response_format(BATCH_JSON_SCHEMA, "signal_batch"),
+            )
+            payload = parse_json_object(content)
+        except LLMResponseError as error:
+            malformed = MalformedClassifierOutputError(str(error))
+            return [malformed] * len(texts)
+        entries = payload.get("results")
+        by_index: dict[int, Any] = {}
+        if isinstance(entries, list):
+            for entry in entries:
+                index = entry.get("index") if isinstance(entry, dict) else None
+                if isinstance(index, int) and not isinstance(index, bool):
+                    by_index.setdefault(index, entry)
+        results: list[ProblemDetectionResult | MalformedClassifierOutputError] = []
+        for index, text in enumerate(truncated):
+            entry = by_index.get(index)
+            if entry is None:
+                results.append(MalformedClassifierOutputError(f"no result for text {index}"))
+                continue
+            try:
+                results.append(self._to_result(entry, text))
+            except MalformedClassifierOutputError as error:
+                results.append(error)
+        return results
+
+    def _response_format(
+        self, schema: dict[str, Any] | None = None, name: str = "signal"
+    ) -> dict[str, Any]:
         if self.use_json_schema:
             return {
                 "type": "json_schema",
-                "json_schema": {"name": "signal", "schema": SIGNAL_JSON_SCHEMA},
+                "json_schema": {"name": name, "schema": schema or SIGNAL_JSON_SCHEMA},
             }
         return {"type": "json_object"}
 
