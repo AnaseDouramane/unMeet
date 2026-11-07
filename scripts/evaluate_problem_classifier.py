@@ -11,6 +11,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from app.config import settings  # noqa: E402
+from app.evaluation.metrics import bootstrap_f1_interval  # noqa: E402
+from app.problem_detection.factory import build_problem_classifier  # noqa: E402
 from app.problem_detection.qwen3 import Qwen3ProblemClassifier  # noqa: E402
 from app.problem_detection.schemas import ProblemClassifier, ProblemDetectionResult  # noqa: E402
 
@@ -60,6 +63,12 @@ class EvaluationReport:
     @property
     def f1_score(self) -> float:
         return _safe_divide(2 * self.precision * self.recall, self.precision + self.recall)
+
+    @property
+    def f1_interval(self) -> tuple[float, float]:
+        return bootstrap_f1_interval(
+            self.true_positives, self.true_negatives, self.false_positives, self.false_negatives
+        )
 
 
 def load_dataset(path: Path) -> list[EvaluationCase]:
@@ -133,6 +142,7 @@ def format_report(report: EvaluationReport) -> str:
         f"Precision: {report.precision:.3f}",
         f"Recall: {report.recall:.3f}",
         f"F1: {report.f1_score:.3f}",
+        "F1 95% bootstrap CI: [{:.3f}, {:.3f}]".format(*report.f1_interval),
         "Errors:",
     ]
     if not report.errors:
@@ -199,9 +209,15 @@ def _safe_divide(numerator: float, denominator: float) -> float:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Evaluate Qwen3 problem detection on a labeled JSONL dataset."
+        description="Evaluate problem detection on a labeled JSONL dataset."
     )
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET_PATH)
+    parser.add_argument(
+        "--backend",
+        choices=("qwen3", "llm"),
+        default="qwen3",
+        help="qwen3: local model; llm: CLASSIFIER settings from the environment (LLM_*)",
+    )
     args = parser.parse_args()
 
     try:
@@ -212,8 +228,14 @@ def main() -> int:
 
     print(f"Loaded cases: {len(cases)}")
     try:
-        classifier = Qwen3ProblemClassifier()
-        print(f"Selected device: {classifier.device_name}")
+        if args.backend == "qwen3":
+            classifier = Qwen3ProblemClassifier()
+            print(f"Selected device: {classifier.device_name}")
+        else:
+            from dataclasses import replace
+
+            classifier = build_problem_classifier(replace(settings, classifier_backend="llm"))
+            print(f"Selected classifier: {getattr(classifier, 'classifier_name', 'llm')}")
         report = evaluate(
             cases,
             classifier,
