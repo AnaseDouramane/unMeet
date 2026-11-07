@@ -206,7 +206,7 @@ def test_build_application_wires_multiple_connectors_with_factories(monkeypatch)
         type("ClustererFactory", (), {"for_text_embeddings": staticmethod(lambda: clusterer)}),
     )
     monkeypatch.setattr(run_unmeet, "ClusteringService", lambda repository, clusterer: object())
-    monkeypatch.setattr(run_unmeet, "TopicLabelingService", lambda: object())
+    monkeypatch.setattr(run_unmeet, "build_cluster_labeler", lambda settings: object())
     monkeypatch.setattr(run_unmeet, "ClusterRepository", lambda: object())
     monkeypatch.setattr(run_unmeet, "ClusterMatchingService", lambda: object())
     monkeypatch.setattr(run_unmeet, "TrendDetectionService", lambda: object())

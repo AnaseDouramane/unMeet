@@ -8,10 +8,10 @@ from time import perf_counter
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.analysis.orchestrator import AnalysisOrchestrator
+from app.clustering.factory import build_cluster_labeler
 from app.clustering.hdbscan_clusterer import HDBSCANClusterer
 from app.clustering.matching import ClusterMatchingService
 from app.clustering.service import ClusteringService
-from app.clustering.topic_labeling import TopicLabelingService
 from app.clustering.trend_detection import TrendDetectionService
 from app.config import Settings
 from app.database.repository import ClusterRepository, SourceItemRepository
@@ -54,7 +54,7 @@ def build_application(settings: Settings) -> UnmeetApplication:
 
     clusterer = HDBSCANClusterer.for_text_embeddings()
     clustering_service = ClusteringService(source_item_repository, clusterer)
-    topic_labeling_service = TopicLabelingService()
+    topic_labeling_service = build_cluster_labeler(settings)
     cluster_repository = ClusterRepository()
     cluster_matching_service = ClusterMatchingService()
     trend_detection_service = TrendDetectionService()

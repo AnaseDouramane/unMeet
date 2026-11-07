@@ -116,7 +116,7 @@ def test_build_application_uses_settings_embedding_model(monkeypatch) -> None:
 
     monkeypatch.setattr(run_analysis, "SourceItemRepository", lambda: object())
     monkeypatch.setattr(run_analysis, "ClusteringService", lambda repository, clusterer: object())
-    monkeypatch.setattr(run_analysis, "TopicLabelingService", lambda: object())
+    monkeypatch.setattr(run_analysis, "build_cluster_labeler", lambda settings: object())
     monkeypatch.setattr(run_analysis, "ClusterRepository", lambda: object())
     monkeypatch.setattr(run_analysis, "ClusterMatchingService", lambda: object())
     monkeypatch.setattr(run_analysis, "TrendDetectionService", lambda: object())

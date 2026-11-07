@@ -17,7 +17,6 @@ Design choices:
 
 from __future__ import annotations
 
-import json
 import math
 import re
 import time
@@ -27,6 +26,12 @@ from typing import Any
 
 import requests
 
+from app.llm.client import (
+    ChatCompletionsClient,
+    LLMRequestError,
+    LLMResponseError,
+    parse_json_object,
+)
 from app.problem_detection.schemas import (
     SIGNAL_INTENTS,
     MalformedClassifierOutputError,
@@ -82,13 +87,11 @@ SIGNAL_JSON_SCHEMA: dict[str, Any] = {
     },
 }
 
-_RETRYABLE_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504})
 _MAX_QUOTE_LENGTH = 200
 _MAX_PRODUCTS = 10
 
 
-class LLMClassifierError(RuntimeError):
-    """Raised when the provider cannot be reached or rejects the request."""
+LLMClassifierError = LLMRequestError
 
 
 class OpenAICompatibleSignalClassifier:
@@ -104,25 +107,21 @@ class OpenAICompatibleSignalClassifier:
         session: requests.Session | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        if not isinstance(model, str) or not model.strip():
-            raise ValueError("model must not be empty")
-        if not isinstance(base_url, str) or not base_url.strip():
-            raise ValueError("base_url must not be empty")
-        if timeout_seconds <= 0:
-            raise ValueError("timeout_seconds must be positive")
-        if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
-            raise ValueError("max_retries must be a non-negative integer")
         if max_document_chars <= 0:
             raise ValueError("max_document_chars must be positive")
-        self.model = model.strip()
-        self.base_url = base_url.strip().rstrip("/")
-        self._api_key = api_key
-        self.timeout_seconds = timeout_seconds
-        self.max_retries = max_retries
+        self._client = ChatCompletionsClient(
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+            session=session,
+            sleep=sleep,
+        )
+        self.model = self._client.model
+        self.base_url = self._client.base_url
         self.max_document_chars = max_document_chars
         self.use_json_schema = use_json_schema
-        self._session = session or requests.Session()
-        self._sleep = sleep
 
     @property
     def classifier_name(self) -> str:
@@ -135,59 +134,26 @@ class OpenAICompatibleSignalClassifier:
             raise ValueError("document_text must not be empty")
 
         text = document_text[: self.max_document_chars]
-        content = self._complete(text)
-        payload = _parse_json_object(content)
+        try:
+            content = self._client.complete(
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Text:\n{text}"},
+                ],
+                response_format=self._response_format(),
+            )
+            payload = parse_json_object(content)
+        except LLMResponseError as error:
+            raise MalformedClassifierOutputError(str(error)) from error
         return self._to_result(payload, text)
 
-    def _complete(self, text: str) -> str:
-        body: dict[str, Any] = {
-            "model": self.model,
-            "temperature": 0,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Text:\n{text}"},
-            ],
-            "response_format": (
-                {
-                    "type": "json_schema",
-                    "json_schema": {"name": "signal", "schema": SIGNAL_JSON_SCHEMA},
-                }
-                if self.use_json_schema
-                else {"type": "json_object"}
-            ),
-        }
-        headers = {"Content-Type": "application/json"}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
-
-        for attempt in range(self.max_retries + 1):
-            try:
-                response = self._session.post(
-                    f"{self.base_url}/chat/completions",
-                    json=body,
-                    headers=headers,
-                    timeout=self.timeout_seconds,
-                )
-            except (requests.Timeout, requests.ConnectionError) as error:
-                if attempt == self.max_retries:
-                    raise LLMClassifierError(f"LLM request failed: {error}") from error
-                self._sleep(_backoff_seconds(attempt, None))
-                continue
-
-            if response.status_code in _RETRYABLE_STATUS and attempt < self.max_retries:
-                self._sleep(_backoff_seconds(attempt, response.headers.get("Retry-After")))
-                continue
-            if response.status_code >= 400:
-                raise LLMClassifierError(
-                    f"LLM provider returned HTTP {response.status_code}: {response.text[:300]}"
-                )
-            try:
-                return str(response.json()["choices"][0]["message"]["content"])
-            except (ValueError, KeyError, IndexError, TypeError) as error:
-                raise MalformedClassifierOutputError(
-                    "LLM response has no message content"
-                ) from error
-        raise LLMClassifierError("LLM request failed after retries")  # pragma: no cover
+    def _response_format(self) -> dict[str, Any]:
+        if self.use_json_schema:
+            return {
+                "type": "json_schema",
+                "json_schema": {"name": "signal", "schema": SIGNAL_JSON_SCHEMA},
+            }
+        return {"type": "json_object"}
 
     def _to_result(self, payload: dict[str, Any], text: str) -> ProblemDetectionResult:
         is_problem = payload.get("is_problem")
@@ -228,20 +194,6 @@ class OpenAICompatibleSignalClassifier:
             products_mentioned=_products(payload.get("products_mentioned")),
             severity=_severity(payload.get("severity")),
         )
-
-
-def _parse_json_object(content: str) -> dict[str, Any]:
-    candidate = content.strip()
-    fenced = re.fullmatch(r"```(?:json)?\s*(\{.*\})\s*```", candidate, re.DOTALL)
-    if fenced is not None:
-        candidate = fenced.group(1)
-    try:
-        payload = json.loads(candidate)
-    except json.JSONDecodeError as error:
-        raise MalformedClassifierOutputError("LLM output is not valid JSON") from error
-    if not isinstance(payload, dict):
-        raise MalformedClassifierOutputError("LLM output must be a JSON object")
-    return payload
 
 
 def _problem_intent(intent: Any) -> SignalIntent:
@@ -286,12 +238,3 @@ def _severity(value: Any) -> int | None:
         return None
     severity = round(float(value))
     return severity if 1 <= severity <= 3 else None
-
-
-def _backoff_seconds(attempt: int, retry_after: str | None) -> float:
-    if retry_after is not None:
-        try:
-            return min(max(float(retry_after), 0.0), 60.0)
-        except ValueError:
-            pass
-    return float(min(2**attempt, 30))
