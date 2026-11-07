@@ -215,3 +215,21 @@ class TrackedTopicModel(Base):
     last_delivered_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class SignalTopicMatchModel(Base):
+    """Why a classified item is relevant to a tracked topic, in the model's words."""
+
+    __tablename__ = "signal_topic_matches"
+    __table_args__ = (Index("ix_signal_topic_matches_topic_id", "topic_id"),)
+
+    source_item_id: Mapped[int] = mapped_column(
+        ForeignKey("source_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    topic_id: Mapped[int] = mapped_column(
+        ForeignKey("tracked_topics.id", ondelete="CASCADE"), primary_key=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

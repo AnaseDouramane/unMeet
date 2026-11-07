@@ -11,6 +11,7 @@ from app.problem_detection.schemas import (
     MalformedClassifierOutputError,
     ProblemClassifier,
     ProblemDetectionResult,
+    TopicMatch,
 )
 
 logger = logging.getLogger(__name__)
@@ -144,4 +145,13 @@ def validate_problem_detection_result(result: ProblemDetectionResult) -> Problem
         or not 1 <= result.severity <= 3
     ):
         raise ValueError("severity must be an integer between 1 and 3")
+    if not isinstance(result.topic_matches, tuple) or any(
+        not isinstance(match, TopicMatch)
+        or isinstance(match.topic_id, bool)
+        or not isinstance(match.topic_id, int)
+        or not isinstance(match.reason, str)
+        or not match.reason.strip()
+        for match in result.topic_matches
+    ):
+        raise ValueError("topic_matches must be a tuple of TopicMatch with non-empty reasons")
     return result

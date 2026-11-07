@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-from sqlalchemy import ColumnElement, case, exists, func, literal, select
+from sqlalchemy import ColumnElement, case, delete, exists, func, literal, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
@@ -16,7 +16,9 @@ from app.database.models import (
     ClusterModel,
     ClusterRunModel,
     ClusterTrendModel,
+    SignalTopicMatchModel,
     SourceItemModel,
+    TrackedTopicModel,
     cluster_source_items,
 )
 from app.database.schemas import (
@@ -346,6 +348,9 @@ class SourceItemRepository:
 
             if existing is None:
                 session.add(model)
+            if normalized_problem_result is not None:
+                session.flush()
+                self._replace_topic_matches(session, model.id, normalized_problem_result)
             session.commit()
             session.refresh(model)
             return self._to_persisted_source_item(model)
@@ -354,6 +359,35 @@ class SourceItemRepository:
             raise
         finally:
             self._close_session(session)
+
+    @staticmethod
+    def _replace_topic_matches(
+        session: Session, source_item_id: int, result: ProblemDetectionResult
+    ) -> None:
+        """Store the item's topic matches, replacing those of a previous classification.
+
+        Matches for topics deleted in the meantime are skipped instead of failing the save.
+        """
+        session.execute(
+            delete(SignalTopicMatchModel).where(
+                SignalTopicMatchModel.source_item_id == source_item_id
+            )
+        )
+        if not result.topic_matches:
+            return
+        wanted = {match.topic_id for match in result.topic_matches}
+        existing_ids = set(
+            session.scalars(select(TrackedTopicModel.id).where(TrackedTopicModel.id.in_(wanted)))
+        )
+        for match in result.topic_matches:
+            if match.topic_id in existing_ids:
+                session.add(
+                    SignalTopicMatchModel(
+                        source_item_id=source_item_id,
+                        topic_id=match.topic_id,
+                        reason=match.reason,
+                    )
+                )
 
     @staticmethod
     def _to_persisted_source_item(model: SourceItemModel) -> PersistedSourceItem:
