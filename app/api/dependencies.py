@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
 
@@ -19,15 +19,13 @@ from app.analytics.schemas import (
 from app.analytics.service import AnalyticsService
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.embeddings.embedding_service import EmbeddingService
+from app.errors import DatabaseUnavailableError
 from app.opportunities.ranking import (
     OpportunityClusterInput,
     OpportunityRankingResult,
     OpportunityRankingService,
 )
-
-
-class DatabaseUnavailableError(Exception):
-    pass
+from app.signals.service import EmptySignalReader, RepositorySignalReader, SignalReader
 
 
 @dataclass(frozen=True)
@@ -217,18 +215,18 @@ class RepositorySemanticSearch:
 class ApiDependencies:
     analytics_reader: AnalyticsReadFacade
     semantic_search: SemanticSearch
+    signal_reader: SignalReader = field(default_factory=EmptySignalReader)
 
 
 def build_default_dependencies(embedding_model: str) -> ApiDependencies:
+    embedding_service = EmbeddingService(embedding_model)
     return ApiDependencies(
         analytics_reader=RepositoryAnalyticsReadFacade(
             ClusterRepository(),
             SourceItemRepository(),
         ),
-        semantic_search=RepositorySemanticSearch(
-            EmbeddingService(embedding_model),
-            SourceItemRepository(),
-        ),
+        semantic_search=RepositorySemanticSearch(embedding_service, SourceItemRepository()),
+        signal_reader=RepositorySignalReader(embedding_service, SourceItemRepository()),
     )
 
 

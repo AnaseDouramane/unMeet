@@ -106,3 +106,31 @@ class TrendsResponse(BaseModel):
 
 class SearchResponse(BaseModel):
     items: list[PublicDocumentResponse]
+
+
+SignalIntentParam = Literal[
+    "pain_point", "feature_request", "solution_search", "competitor_complaint"
+]
+
+
+class SignalResponse(BaseModel):
+    id: int
+    source: str
+    title: str
+    url: str
+    author: str | None
+    published_at: datetime
+    intent: str | None
+    pain_quote: str | None
+    products_mentioned: list[str]
+    severity: int | None
+    confidence: float
+    similarity: float | None = Field(
+        default=None, description="Cosine similarity to the topic, when a topic was given"
+    )
+
+
+class SignalListResponse(BaseModel):
+    items: list[SignalResponse]
+    limit: int
+    offset: int
