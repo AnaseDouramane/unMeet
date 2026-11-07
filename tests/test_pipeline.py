@@ -397,3 +397,81 @@ def test_pipeline_reclassifies_items_whose_content_changed() -> None:
     assert len(detection.calls) == 3
     assert pipeline.last_run_stats is not None
     assert pipeline.last_run_stats.skipped_count == 0
+
+
+class ConcurrentClassifier:
+    classifier_name = "concurrent-test"
+
+    def __init__(self) -> None:
+        import threading
+
+        self.thread_names: set[str] = set()
+        self._lock = threading.Lock()
+
+    def classify(self, document_text: str) -> ProblemDetectionResult:
+        import threading
+        import time
+
+        time.sleep(0.01)
+        with self._lock:
+            self.thread_names.add(threading.current_thread().name)
+        if document_text.endswith("Body 3"):
+            raise MalformedClassifierOutputError("broken json")
+        return _result(int(document_text.rsplit(" ", 1)[-1]) % 2 == 0)
+
+
+def test_concurrent_classification_keeps_source_order_and_counts() -> None:
+    classifier = ConcurrentClassifier()
+    repository = FakeRepository()
+    pipeline = Pipeline(
+        settings=type("SettingsStub", (), {"environment": "test"})(),
+        connector=FakeBatchConnector(20),
+        preprocessing_service=PreprocessingService(),
+        repository=repository,
+        embedding_service=FakeEmbeddingService(),
+        problem_detection_service=ProblemDetectionService(classifier),
+        classification_workers=4,
+    )
+
+    documents = pipeline.run()
+
+    assert [saved[0].external_id for saved in repository.saved] == [str(i) for i in range(20)]
+    assert [d.source_item.external_id for d in documents] == [str(i) for i in range(0, 20, 2)]
+    assert len(classifier.thread_names) > 1
+    assert pipeline.last_run_stats is not None
+    assert pipeline.last_run_stats.classification_error_count == 1
+    assert pipeline.last_run_stats.non_problem_count == 10
+
+
+class FailingAfterConnector:
+    def fetch(self):
+        yield _source_item(0)
+        yield _source_item(1)
+        raise RuntimeError("connector lost")
+
+
+def test_items_fetched_before_a_connector_failure_are_persisted() -> None:
+    repository = FakeRepository()
+    pipeline = _pipeline_with(
+        repository,
+        FakeProblemDetectionService([_result(True), _result(False)]),
+        connector=FailingAfterConnector(),
+    )
+
+    with pytest.raises(RuntimeError, match="connector lost"):
+        pipeline.run()
+
+    assert [saved[0].external_id for saved in repository.saved] == ["0", "1"]
+
+
+def test_classification_workers_must_be_positive() -> None:
+    with pytest.raises(ValueError, match="classification_workers"):
+        Pipeline(
+            settings=None,  # type: ignore[arg-type]
+            connector=FakeMixedConnector(),
+            preprocessing_service=PreprocessingService(),
+            repository=FakeRepository(),
+            embedding_service=FakeEmbeddingService(),
+            problem_detection_service=FakeProblemDetectionService([]),
+            classification_workers=0,
+        )

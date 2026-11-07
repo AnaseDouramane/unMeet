@@ -115,6 +115,7 @@ class Settings:
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
     llm_api_key: str | None = os.getenv("LLM_API_KEY") or None
     llm_model: str | None = os.getenv("LLM_MODEL") or None
+    classification_workers: int = _positive_integer_setting("CLASSIFICATION_WORKERS", 8)
     llm_use_json_schema: bool = _boolean_setting("LLM_USE_JSON_SCHEMA", True)
     embedding_model: str = os.getenv(
         "EMBEDDING_MODEL",

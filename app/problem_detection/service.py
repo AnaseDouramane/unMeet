@@ -21,24 +21,40 @@ class ProblemDetectionService:
         self.last_detection_was_malformed_output = False
 
     def detect(self, prepared_document: PreparedDocument) -> ProblemDetectionResult:
+        result, malformed = self.detect_with_status(prepared_document)
+        self.last_detection_was_malformed_output = malformed
+        return result
+
+    def detect_with_status(
+        self, prepared_document: PreparedDocument
+    ) -> tuple[ProblemDetectionResult, bool]:
+        """Classify a document and report whether the output was malformed.
+
+        Unlike :meth:`detect` this keeps no per-call state, so it is safe to call from
+        several threads at once.
+        """
         document_text = prepared_document.document_text
         self._validate_document_text(document_text)
-        self.last_detection_was_malformed_output = False
         try:
-            return validate_problem_detection_result(self._classifier.classify(document_text))
+            return (
+                validate_problem_detection_result(self._classifier.classify(document_text)),
+                False,
+            )
         except MalformedClassifierOutputError:
-            self.last_detection_was_malformed_output = True
             source_item = prepared_document.source_item
             logger.warning(
                 "Malformed classifier output for %s:%s; treating document as non-problem",
                 source_item.source,
                 source_item.external_id,
             )
-            return ProblemDetectionResult(
-                is_problem=False,
-                confidence=0.0,
-                reason="Malformed classifier output",
-                classifier_name=self._classifier_name(),
+            return (
+                ProblemDetectionResult(
+                    is_problem=False,
+                    confidence=0.0,
+                    reason="Malformed classifier output",
+                    classifier_name=self._classifier_name(),
+                ),
+                True,
             )
 
     def _classifier_name(self) -> str:

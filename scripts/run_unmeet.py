@@ -49,6 +49,7 @@ def build_application(settings: Settings) -> UnmeetApplication:
         repository=source_item_repository,
         embedding_service=embedding_service,
         problem_detection_service=problem_detection_service,
+        classification_workers=getattr(settings, "classification_workers", 1),
     )
 
     clusterer = HDBSCANClusterer.for_text_embeddings()
