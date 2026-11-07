@@ -18,7 +18,7 @@ from app.database.repository import ClusterRepository, SourceItemRepository
 from app.database.schemas import ClusterRunMetadata
 from app.embeddings.embedding_service import EmbeddingService
 from app.ingestion.factory import build_configured_connectors
-from app.problem_detection.qwen3 import Qwen3ProblemClassifier
+from app.problem_detection.factory import build_problem_classifier
 from app.problem_detection.service import ProblemDetectionService
 from app.services.multi_source_ingestion import (
     MultiSourceIngestionResult,
@@ -38,7 +38,7 @@ class UnmeetApplication:
 def build_application(settings: Settings) -> UnmeetApplication:
     connectors = build_configured_connectors(settings)
     preprocessing_service = PreprocessingService()
-    classifier = Qwen3ProblemClassifier()
+    classifier = build_problem_classifier(settings)
     problem_detection_service = ProblemDetectionService(classifier)
     embedding_service = EmbeddingService(model_name=settings.embedding_model)
     source_item_repository = SourceItemRepository()

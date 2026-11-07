@@ -195,7 +195,7 @@ def test_build_application_wires_multiple_connectors_with_factories(monkeypatch)
         lambda settings: (connector, reddit_connector, github_connector),
     )
     monkeypatch.setattr(run_unmeet, "PreprocessingService", lambda: preprocessing_service)
-    monkeypatch.setattr(run_unmeet, "Qwen3ProblemClassifier", lambda: object())
+    monkeypatch.setattr(run_unmeet, "build_problem_classifier", lambda settings: object())
     monkeypatch.setattr(run_unmeet, "ProblemDetectionService", lambda classifier: object())
     monkeypatch.setattr(run_unmeet, "EmbeddingService", lambda model_name: embedding_service)
     monkeypatch.setattr(run_unmeet, "SourceItemRepository", lambda: object())

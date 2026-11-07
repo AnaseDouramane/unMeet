@@ -111,6 +111,11 @@ class Settings:
     github_issues_limit: int = _positive_integer_setting("GITHUB_ISSUES_LIMIT", 100)
     github_issues_state: str = os.getenv("GITHUB_ISSUES_STATE", "open")
     github_issues_sort: str = os.getenv("GITHUB_ISSUES_SORT", "updated")
+    classifier_backend: str = os.getenv("CLASSIFIER_BACKEND", "qwen3").strip().lower()
+    llm_base_url: str = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
+    llm_api_key: str | None = os.getenv("LLM_API_KEY") or None
+    llm_model: str | None = os.getenv("LLM_MODEL") or None
+    llm_use_json_schema: bool = _boolean_setting("LLM_USE_JSON_SCHEMA", True)
     embedding_model: str = os.getenv(
         "EMBEDDING_MODEL",
         "sentence-transformers/all-MiniLM-L6-v2",
