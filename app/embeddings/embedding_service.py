@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from numbers import Real
+from typing import Any
 
 import numpy as np
 
@@ -11,7 +12,7 @@ DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 class EmbeddingService:
     def __init__(self, model_name: str | None = None) -> None:
         self.model_name = model_name or settings.embedding_model or DEFAULT_EMBEDDING_MODEL
-        self._model = None
+        self._model: Any = None
 
     def _load_model(self) -> None:
         if self._model is not None:

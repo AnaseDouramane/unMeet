@@ -339,7 +339,7 @@ def test_qwen3_classifier_automatically_uses_cuda_with_float16(monkeypatch) -> N
     assert classifier.device_name == "cuda"
     assert classifier.model_device_name == "cuda"
     assert classifier.input_ids_device_name is None
-    assert model.load_kwargs == {"torch_dtype": "float16"}
+    assert model.load_kwargs == {"dtype": "float16"}
     assert model.to_calls == ["cuda"]
     assert fake_torch.inference_mode_entries == 1
 

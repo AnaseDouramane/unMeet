@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import Literal
 
+TrendStatus = Literal["new", "rising", "stable", "falling"]
+TREND_STATUSES: frozenset[str] = frozenset({"new", "rising", "stable", "falling"})
+
 
 @dataclass(frozen=True)
 class ClusterableDocument:
@@ -42,5 +45,5 @@ class ClusterTrend:
     previous_count: int
     absolute_change: int
     growth_rate: float | None
-    status: Literal["new", "rising", "stable", "falling"]
+    status: TrendStatus
     similarity: float | None

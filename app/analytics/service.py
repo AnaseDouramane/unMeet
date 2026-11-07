@@ -56,7 +56,7 @@ class AnalyticsService:
         trends_by_cluster_id = self._validate_trends(clusters_by_id, trends)
         ranking_items = self._build_ranking_items(clusters_by_id, rankings)
         source_breakdown = self._build_source_breakdown(source_problem_counts)
-        trend_distribution = self._trend_distribution(trends_by_cluster_id.values())
+        trend_distribution = self._trend_distribution(tuple(trends_by_cluster_id.values()))
         time_series = self._build_time_series(latest_run, historical_runs, granularity)
         summary = DashboardSummary(
             total_problems=sum(item.problem_count for item in source_breakdown),
@@ -222,7 +222,7 @@ class AnalyticsService:
         )
 
     def _trend_distribution(self, trends: Sequence[ClusterTrend]) -> TrendDistribution:
-        counts = Counter()
+        counts: Counter[str] = Counter()
         for trend in trends:
             if trend.status not in self._STATUSES:
                 raise ValueError(f"invalid trend status: {trend.status}")

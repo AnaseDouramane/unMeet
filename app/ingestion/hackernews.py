@@ -69,11 +69,11 @@ class HackerNewsConnector(SourceConnector):
         for feed in self.feeds:
             if produced_count >= self.limit:
                 return
-            pending = [
-                story_id
-                for story_id in self._fetch_feed_ids(feed)
-                if not (story_id in seen_story_ids or seen_story_ids.add(story_id))
-            ]
+            pending: list[int] = []
+            for story_id in self._fetch_feed_ids(feed):
+                if story_id not in seen_story_ids:
+                    seen_story_ids.add(story_id)
+                    pending.append(story_id)
             while pending and produced_count < self.limit:
                 batch_size = min(self.max_workers, self.limit - produced_count)
                 batch, pending = pending[:batch_size], pending[batch_size:]

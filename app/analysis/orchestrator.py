@@ -126,7 +126,7 @@ class AnalysisOrchestrator:
             self._metadata,
             exclude_run_id=persisted_run.id,
         )
-        previous_clusters = ()
+        previous_clusters: tuple[PersistedClusterDetails, ...] = ()
         if previous_run is not None:
             self._validate_previous_run(previous_run)
             previous_clusters = tuple(

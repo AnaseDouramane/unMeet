@@ -19,7 +19,11 @@ from app.analytics.schemas import (
 from app.analytics.service import AnalyticsService
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.embeddings.embedding_service import EmbeddingService
-from app.opportunities.ranking import OpportunityClusterInput, OpportunityRankingService
+from app.opportunities.ranking import (
+    OpportunityClusterInput,
+    OpportunityRankingResult,
+    OpportunityRankingService,
+)
 
 
 class DatabaseUnavailableError(Exception):
@@ -109,7 +113,7 @@ class RepositoryAnalyticsReadFacade:
             )
             clusters = self._cluster_repository.get_clusters_for_run(latest_run.id)
             trends = self._cluster_repository.get_trends_for_run(latest_run.id)
-            rankings = ()
+            rankings: tuple[OpportunityRankingResult, ...] = ()
             if clusters:
                 statistics_by_cluster_id = {
                     item.cluster_id: item

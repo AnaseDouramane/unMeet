@@ -3,13 +3,13 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.clustering.schemas import ClusterableDocument, ClusterTrend
+from app.clustering.schemas import ClusterableDocument, ClusterTrend, TrendStatus
 from app.database.models import (
     ClusterModel,
     ClusterRunModel,
@@ -685,7 +685,7 @@ class ClusterRepository:
                     previous_count=model.previous_count,
                     absolute_change=model.absolute_change,
                     growth_rate=model.growth_rate,
-                    status=model.status,
+                    status=cast(TrendStatus, model.status),
                     similarity=model.similarity,
                 )
                 for model in models

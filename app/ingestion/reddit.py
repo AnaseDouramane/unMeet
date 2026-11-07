@@ -144,7 +144,7 @@ class RedditConnector(SourceConnector):
             external_id=external_id,
             source="reddit",
             title=title,
-            body=post.get("selftext") if isinstance(post.get("selftext"), str) else "",
+            body=selftext if isinstance(selftext := post.get("selftext"), str) else "",
             url=url,
             author=author if isinstance(author, str) and author.strip() else None,
             published_at=datetime.fromtimestamp(created_utc, tz=UTC),
