@@ -30,6 +30,10 @@ python -m scripts.init_db
 python -m scripts.run_unmeet
 ```
 
+`scripts.init_db` applies the Alembic migrations (`alembic upgrade head`). Databases created
+before migrations existed are stamped at the baseline revision automatically. To change the
+schema, edit `app/database/models.py` and run `alembic revision --autogenerate -m "..."`.
+
 Per ripetere soltanto clustering, labeling e trend sui problemi già persistiti:
 
 ```bash
@@ -77,6 +81,13 @@ streamlit run app/dashboard/app.py
 
 ```bash
 pytest
+```
+
+Integration tests run against a real PostgreSQL with pgvector when `TEST_DATABASE_URL` is set
+(they are skipped otherwise; the test database is reset):
+
+```bash
+TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/unmeet_test pytest
 ```
 
 ## Struttura
