@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+import logging
+import time
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -9,6 +11,8 @@ import requests
 from app.config import Settings
 from app.ingestion.base import SourceConnector
 from app.ingestion.schemas import SourceItem
+
+logger = logging.getLogger(__name__)
 
 
 class RedditApiError(RuntimeError):
@@ -20,7 +24,17 @@ class RedditClient(Protocol):
 
 
 class RedditHttpClient:
+    """Reddit listing client.
+
+    With ``client_id`` and ``client_secret`` it uses Reddit's OAuth API (application-only
+    ``client_credentials`` grant), which has documented rate limits and is required for
+    commercial use. Without credentials it falls back to the public ``.json`` endpoints, which
+    are heavily rate limited and only suitable for local experiments.
+    """
+
     base_url = "https://www.reddit.com"
+    oauth_url = "https://oauth.reddit.com"
+    token_url = "https://www.reddit.com/api/v1/access_token"
 
     def __init__(
         self,
@@ -28,20 +42,38 @@ class RedditHttpClient:
         client_id: str | None = None,
         client_secret: str | None = None,
         timeout_seconds: float = 10.0,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if not isinstance(user_agent, str) or not user_agent.strip():
             raise ValueError("reddit_user_agent must not be empty")
         self._user_agent = user_agent.strip()
-        self._client_id = client_id
-        self._client_secret = client_secret
+        self._client_id = client_id or None
+        self._client_secret = client_secret or None
         self._timeout_seconds = timeout_seconds
+        self._clock = clock
+        self._token: str | None = None
+        self._token_expires_at = 0.0
+        if not self.uses_oauth:
+            logger.warning(
+                "Reddit credentials are not configured; using the public JSON endpoints"
+            )
+
+    @property
+    def uses_oauth(self) -> bool:
+        return self._client_id is not None and self._client_secret is not None
 
     def fetch_posts(self, subreddit: str, sort: str, limit: int) -> list[dict[str, Any]]:
+        headers = {"User-Agent": self._user_agent}
+        if self.uses_oauth:
+            url = f"{self.oauth_url}/r/{subreddit}/{sort}"
+            headers["Authorization"] = f"Bearer {self._access_token()}"
+        else:
+            url = f"{self.base_url}/r/{subreddit}/{sort}.json"
         try:
             response = requests.get(
-                f"{self.base_url}/r/{subreddit}/{sort}.json",
-                params={"limit": limit},
-                headers={"User-Agent": self._user_agent},
+                url,
+                params={"limit": limit, "raw_json": 1},
+                headers=headers,
                 timeout=self._timeout_seconds,
             )
             response.raise_for_status()
@@ -62,6 +94,33 @@ class RedditHttpClient:
             for child in children
             if isinstance(child, dict) and isinstance(child.get("data"), dict)
         ]
+
+    def _access_token(self) -> str:
+        """Return a cached application token, refreshing it a minute before expiry."""
+        if self._token is not None and self._clock() < self._token_expires_at:
+            return self._token
+        assert self._client_id is not None and self._client_secret is not None
+        try:
+            response = requests.post(
+                self.token_url,
+                auth=(self._client_id, self._client_secret),
+                data={"grant_type": "client_credentials"},
+                headers={"User-Agent": self._user_agent},
+                timeout=self._timeout_seconds,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            token = payload["access_token"]
+            expires_in = float(payload.get("expires_in", 3600))
+        except requests.RequestException as error:
+            raise RedditApiError(f"Reddit OAuth token request failed: {error}") from error
+        except (ValueError, KeyError, TypeError) as error:
+            raise RedditApiError("Reddit OAuth returned an unexpected token payload") from error
+        if not isinstance(token, str) or not token:
+            raise RedditApiError("Reddit OAuth returned an empty token")
+        self._token = token
+        self._token_expires_at = self._clock() + max(expires_in - 60.0, 0.0)
+        return token
 
 
 class RedditConnector(SourceConnector):
