@@ -127,6 +127,7 @@ class Settings:
     api_host: str = os.getenv("API_HOST", "127.0.0.1")
     api_port: int = int(os.getenv("API_PORT", "8000"))
     api_cors_origins: tuple[str, ...] = _api_cors_origins()
+    api_key: str | None = os.getenv("UNMEET_API_KEY") or None
 
 
 settings = Settings()

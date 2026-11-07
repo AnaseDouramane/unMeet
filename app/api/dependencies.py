@@ -26,6 +26,8 @@ from app.opportunities.ranking import (
     OpportunityRankingService,
 )
 from app.signals.service import EmptySignalReader, RepositorySignalReader, SignalReader
+from app.topics.repository import TopicRepository
+from app.topics.store import InMemoryTopicStore, TopicStore
 
 
 @dataclass(frozen=True)
@@ -216,6 +218,7 @@ class ApiDependencies:
     analytics_reader: AnalyticsReadFacade
     semantic_search: SemanticSearch
     signal_reader: SignalReader = field(default_factory=EmptySignalReader)
+    topic_store: TopicStore = field(default_factory=InMemoryTopicStore)
 
 
 def build_default_dependencies(embedding_model: str) -> ApiDependencies:
@@ -227,6 +230,7 @@ def build_default_dependencies(embedding_model: str) -> ApiDependencies:
         ),
         semantic_search=RepositorySemanticSearch(embedding_service, SourceItemRepository()),
         signal_reader=RepositorySignalReader(embedding_service, SourceItemRepository()),
+        topic_store=TopicRepository(),
     )
 
 

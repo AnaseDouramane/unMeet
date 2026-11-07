@@ -134,3 +134,32 @@ class SignalListResponse(BaseModel):
     items: list[SignalResponse]
     limit: int
     offset: int
+
+
+class TopicCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    intents: list[SignalIntentParam] = Field(default_factory=list)
+    products: list[str] = Field(default_factory=list, max_length=20)
+    sources: list[str] = Field(default_factory=list, max_length=10)
+    min_severity: int | None = Field(default=None, ge=1, le=3)
+    max_distance: float = Field(default=0.6, gt=0, le=2)
+    webhook_url: str | None = Field(default=None, max_length=2000)
+
+
+class TopicResponse(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    intents: list[str]
+    products: list[str]
+    sources: list[str]
+    min_severity: int | None
+    max_distance: float
+    has_webhook: bool
+    created_at: datetime | None
+    last_delivered_at: datetime | None
+
+
+class TopicListResponse(BaseModel):
+    items: list[TopicResponse]
