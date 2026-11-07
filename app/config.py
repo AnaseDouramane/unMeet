@@ -1,6 +1,12 @@
 from dataclasses import dataclass
 import os
 
+from dotenv import find_dotenv, load_dotenv
+
+# Load variables from a local .env before any setting is read. Variables already present in
+# the process environment take precedence, so deployments and tests keep full control.
+load_dotenv(find_dotenv(usecwd=True), override=False)
+
 _HACKERNEWS_SUPPORTED_FEEDS = frozenset({"topstories", "newstories", "beststories", "askstories"})
 
 
