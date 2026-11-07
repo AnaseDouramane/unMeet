@@ -5,7 +5,6 @@ from app.api.errors import ApiError
 from app.api.routes.common import document_response
 from app.api.schemas import SearchResponse
 
-
 router = APIRouter(prefix="/api/v1", tags=["search"])
 
 

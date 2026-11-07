@@ -1,8 +1,8 @@
 from app.clustering.matching import ClusterMatchingService
 from app.clustering.schemas import (
+    ClusterableDocument,
     ClusterCentroid,
     ClusterMatch,
-    ClusterableDocument,
     ClusterTrend,
     TrendCluster,
 )
@@ -14,8 +14,8 @@ __all__ = [
     "ClusterCentroid",
     "ClusterMatch",
     "ClusterMatchingService",
-    "ClusterableDocument",
     "ClusterTrend",
+    "ClusterableDocument",
     "ClusteringResult",
     "ClusteringService",
     "DocumentCluster",

@@ -7,7 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.problem_detection.qwen3 import Qwen3ProblemClassifier
+from app.problem_detection.qwen3 import Qwen3ProblemClassifier  # noqa: E402
 
 EXAMPLES = [
     "Every sprint we waste hours manually writing release notes.",

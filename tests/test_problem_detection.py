@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -43,7 +43,7 @@ def _prepared_document(
         body="Body",
         url="https://example.com/1",
         author=None,
-        published_at=datetime.now(timezone.utc),
+        published_at=datetime.now(UTC),
         engagement_score=None,
         raw_payload={},
     )
@@ -151,3 +151,46 @@ def test_detect_propagates_classifier_infrastructure_errors() -> None:
 
     with pytest.raises(RuntimeError, match="model generation failed"):
         ProblemDetectionService(classifier).detect(_prepared_document())
+
+
+def _signal_result(**overrides):
+    from app.problem_detection.schemas import ProblemDetectionResult as Result
+
+    values = {
+        "is_problem": True,
+        "confidence": 0.8,
+        "reason": "explicit pain",
+        "classifier_name": "test",
+        "intent": "competitor_complaint",
+        "pain_quote": "Salesforce reporting takes me hours",
+        "products_mentioned": ("Salesforce",),
+        "severity": 2,
+    }
+    values.update(overrides)
+    return Result(**values)
+
+
+def test_signal_fields_are_accepted_when_valid() -> None:
+    from app.problem_detection.service import validate_problem_detection_result
+
+    result = _signal_result()
+
+    assert validate_problem_detection_result(result) is result
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"intent": "rant"}, "intent"),
+        ({"pain_quote": "  "}, "pain_quote"),
+        ({"products_mentioned": ["Salesforce"]}, "products_mentioned"),
+        ({"products_mentioned": ("",)}, "products_mentioned"),
+        ({"severity": 4}, "severity"),
+        ({"severity": True}, "severity"),
+    ],
+)
+def test_invalid_signal_fields_are_rejected(overrides, message: str) -> None:
+    from app.problem_detection.service import validate_problem_detection_result
+
+    with pytest.raises(ValueError, match=message):
+        validate_problem_detection_result(_signal_result(**overrides))

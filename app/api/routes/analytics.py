@@ -3,8 +3,11 @@ from fastapi import APIRouter, Depends
 from app.analytics.schemas import TimeSeriesGranularity
 from app.api.dependencies import ApiDependencies, get_dependencies
 from app.api.routes.common import trend_distribution_response
-from app.api.schemas import AnalyticsSummaryResponse, DashboardSummaryResponse, SourceBreakdownResponse
-
+from app.api.schemas import (
+    AnalyticsSummaryResponse,
+    DashboardSummaryResponse,
+    SourceBreakdownResponse,
+)
 
 router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
 

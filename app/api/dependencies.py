@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
 
@@ -19,11 +19,15 @@ from app.analytics.schemas import (
 from app.analytics.service import AnalyticsService
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.embeddings.embedding_service import EmbeddingService
-from app.opportunities.ranking import OpportunityClusterInput, OpportunityRankingService
-
-
-class DatabaseUnavailableError(Exception):
-    pass
+from app.errors import DatabaseUnavailableError
+from app.opportunities.ranking import (
+    OpportunityClusterInput,
+    OpportunityRankingResult,
+    OpportunityRankingService,
+)
+from app.signals.service import EmptySignalReader, RepositorySignalReader, SignalReader
+from app.topics.repository import TopicRepository
+from app.topics.store import InMemoryTopicStore, TopicStore
 
 
 @dataclass(frozen=True)
@@ -109,7 +113,7 @@ class RepositoryAnalyticsReadFacade:
             )
             clusters = self._cluster_repository.get_clusters_for_run(latest_run.id)
             trends = self._cluster_repository.get_trends_for_run(latest_run.id)
-            rankings = ()
+            rankings: tuple[OpportunityRankingResult, ...] = ()
             if clusters:
                 statistics_by_cluster_id = {
                     item.cluster_id: item
@@ -213,18 +217,20 @@ class RepositorySemanticSearch:
 class ApiDependencies:
     analytics_reader: AnalyticsReadFacade
     semantic_search: SemanticSearch
+    signal_reader: SignalReader = field(default_factory=EmptySignalReader)
+    topic_store: TopicStore = field(default_factory=InMemoryTopicStore)
 
 
 def build_default_dependencies(embedding_model: str) -> ApiDependencies:
+    embedding_service = EmbeddingService(embedding_model)
     return ApiDependencies(
         analytics_reader=RepositoryAnalyticsReadFacade(
             ClusterRepository(),
             SourceItemRepository(),
         ),
-        semantic_search=RepositorySemanticSearch(
-            EmbeddingService(embedding_model),
-            SourceItemRepository(),
-        ),
+        semantic_search=RepositorySemanticSearch(embedding_service, SourceItemRepository()),
+        signal_reader=RepositorySignalReader(embedding_service, SourceItemRepository()),
+        topic_store=TopicRepository(),
     )
 
 

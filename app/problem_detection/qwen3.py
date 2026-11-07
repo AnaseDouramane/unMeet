@@ -76,18 +76,17 @@ class Qwen3ProblemClassifier:
     def _load_components(self) -> tuple[Any, Any]:
         if self._tokenizer is None or self._model is None:
             import torch
-
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
             device = self.device_name
             if self._tokenizer is None:
                 self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             if self._model is None:
-                model_kwargs = {}
+                model_kwargs: dict[str, Any] = {}
                 if device == "cuda":
-                    model_kwargs["torch_dtype"] = torch.float16
+                    model_kwargs["dtype"] = torch.float16
                 self._model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
-                self._model.to(device)
+                self._model.to(device)  # type: ignore[arg-type]
                 self._model.eval()
         return self._tokenizer, self._model
 

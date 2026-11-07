@@ -5,7 +5,6 @@ import json
 import math
 from dataclasses import dataclass
 
-
 CLASSIFICATION_FIELDS = frozenset(
     {"source", "external_id", "is_problem", "confidence", "reason", "classifier_name"}
 )

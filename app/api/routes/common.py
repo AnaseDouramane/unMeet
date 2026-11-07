@@ -1,6 +1,13 @@
-from app.analytics.schemas import ClusterRankingItem
+from typing import cast
+
+from app.analytics.schemas import ClusterRankingItem, TrendDistribution
 from app.api.dependencies import PublicDocument
-from app.api.schemas import OpportunityResponse, PublicDocumentResponse, TrendDistributionResponse
+from app.api.schemas import (
+    OpportunityResponse,
+    PublicDocumentResponse,
+    TrendDistributionResponse,
+    TrendStatus,
+)
 
 
 def opportunity_response(item: ClusterRankingItem) -> OpportunityResponse:
@@ -11,7 +18,7 @@ def opportunity_response(item: ClusterRankingItem) -> OpportunityResponse:
         opportunity_score=item.opportunity_score,
         document_count=item.document_count,
         growth_rate=item.growth_rate,
-        status=item.status,
+        status=cast(TrendStatus, item.status),
         source_count=item.source_count,
         average_problem_confidence=item.average_problem_confidence,
         keywords=list(item.keywords),
@@ -31,7 +38,7 @@ def document_response(item: PublicDocument) -> PublicDocumentResponse:
     )
 
 
-def trend_distribution_response(trends: object) -> TrendDistributionResponse:
+def trend_distribution_response(trends: TrendDistribution) -> TrendDistributionResponse:
     return TrendDistributionResponse(
         new_count=trends.new_count,
         rising_count=trends.rising_count,

@@ -1,98 +1,115 @@
 # unMeet
 
-unMeet raccoglie contenuti da community pubbliche, identifica i problemi espressi, li raggruppa semanticamente e rende disponibili cluster, trend e opportunità tramite API e interfacce locali.
+**Pain-signal engine for go-to-market teams.** unMeet reads public communities (Hacker News,
+Reddit, GitHub Issues), finds people describing a problem, asking for a tool or complaining about
+a product, and turns each post into an actionable signal: intent, the author's exact words,
+products mentioned and severity. Signals are clustered into recurring problems, tracked over
+time, filtered by saved topics and pushed to tools like Clay through webhooks or CSV.
 
-## Stato attuale
-
-Il workflow completo si avvia con `python -m scripts.run_unmeet` e svolge:
-
-1. ingestion multi-fonte da Hacker News, GitHub Issues e, se configurato, Reddit;
-2. preprocessing e deduplicazione testuale;
-3. classificazione locale dei contenuti con Qwen3;
-4. archiviazione dei contenuti non-problema;
-5. generazione degli embedding per i problemi identificati;
-6. persistenza/upsert in PostgreSQL con `pgvector`;
-7. clustering HDBSCAN e topic labeling TF-IDF;
-8. confronto con la run compatibile precedente e persistenza dei trend.
-
-Il comando stampa un riepilogo con record acquisiti, problemi identificati, errori di classificazione, cluster e distribuzione dei trend. `main.py` è mantenuto come alias compatibile dello stesso workflow completo.
-
-Le fonti sono selezionate, nell'ordine di esecuzione, con `INGESTION_SOURCES`. Sono supportati `hackernews`, `github` e `reddit`; almeno una fonte deve essere abilitata. `INGESTION_FAIL_FAST=false` consente alle fonti successive di proseguire dopo il fallimento di un connettore.
-
-Hacker News usa per default `topstories`, `newstories` e `beststories`, con un limite globale di 500 post unici e validi. È supportato anche `askstories`.
-
-Esempio:
-
-```bash
-cp .env.example .env
-docker compose up -d
-python -m scripts.init_db
-python -m scripts.run_unmeet
+```text
+"Every Monday I spend three hours cleaning duplicate contacts in HubSpot. Anything that fixes this?"
+  → intent: solution_search · products: HubSpot · severity: 2
+  → quote: "I spend three hours cleaning duplicate contacts" (verified verbatim in the source)
+  → cluster: "Sales teams clean duplicate CRM contacts by hand" (rising)
 ```
 
-Per ripetere soltanto clustering, labeling e trend sui problemi già persistiti:
+## How it works
 
-```bash
-python -m scripts.run_analysis
+```mermaid
+flowchart LR
+  A[Hacker News · Reddit OAuth · GitHub] --> B[Clean + dedupe]
+  B --> C{Already classified?}
+  C -- yes --> X[skip]
+  C -- no --> D[LLM signal extraction<br/>concurrent, schema-validated]
+  D -- problem --> E[MiniLM embeddings]
+  D -- not a problem --> F[(archive)]
+  E --> G[(Postgres + pgvector)]
+  G --> H[L2 + UMAP + HDBSCAN]
+  H --> I[LLM problem statements<br/>+ trend vs previous run]
+  G --> J[Signals API · CSV]
+  G --> K[Tracked topics → webhooks]
 ```
 
-La prima esecuzione scarica i modelli locali Qwen3 e sentence-transformers. Qwen3 seleziona CUDA quando disponibile e usa altrimenti la CPU.
+Engineering choices worth knowing:
 
-## Applicazione locale
+- **Grounded quotes.** The LLM must return a verbatim excerpt; quotes that do not appear in the
+  source text are discarded, so no fabricated words are ever attributed to a real person.
+- **Provider-agnostic LLM layer.** One OpenAI-compatible client (Groq by default, or OpenAI,
+  OpenRouter, vLLM, Ollama) with schema-constrained JSON, strict validation, and retries that
+  honour `Retry-After`. A local Qwen3 backend remains available with no API key.
+- **Incremental and idempotent.** Unchanged items are never re-classified; edited ones are.
+  Classification runs in ordered concurrent batches and keeps partial progress on failure.
+- **Clustering that works on sentence embeddings.** Vectors are normalised and projected with
+  UMAP before HDBSCAN; the preprocessing is part of each run's signature so trends only compare
+  compatible runs.
+- **Safe outbound webhooks.** https only, no redirects, and the destination is re-resolved at
+  send time to block private and metadata addresses (SSRF / DNS rebinding).
+- **Honest evaluation.** F1 is reported with a bootstrap 95% interval on a labeled sample of real
+  data, not on synthetic sentences; see [docs/EVALUATION.md](docs/EVALUATION.md).
 
-### Backend
+## Quick start
+
+```bash
+cp .env.example .env            # set LLM_API_KEY (e.g. a Groq key) and UNMEET_API_KEY
+docker compose up -d            # Postgres 16 + pgvector
+python -m pip install -r requirements-dev.txt
+python -m scripts.init_db       # applies Alembic migrations
+python -m scripts.run_unmeet    # ingest → classify → embed → cluster → trends
+python -m scripts.deliver_alerts  # push new signals of tracked topics to their webhooks
+```
+
+API and UI:
 
 ```bash
 uvicorn app.api.app:create_app --factory --reload
+cd frontend && npm install && cp .env.example .env.local && npm run dev
 ```
 
-### Frontend
+Re-run only clustering, labeling and trends on stored data with `python -m scripts.run_analysis`.
+
+## Configuration
+
+| Variable | Purpose |
+|----------|---------|
+| `INGESTION_SOURCES` | `hackernews,reddit,github` in execution order |
+| `HACKERNEWS_FEEDS`, `HACKERNEWS_INCLUDE_COMMENTS` | feeds to read; comments carry most pain points |
+| `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_SUBREDDITS` | Reddit OAuth app (required for anything beyond local tests) |
+| `CLASSIFIER_BACKEND` | `llm` (signals) or `qwen3` (local, binary) |
+| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | any OpenAI-compatible endpoint |
+| `CLASSIFICATION_WORKERS` | concurrent classification requests |
+| `LABELING_BACKEND` | `llm` problem statements or `keywords` (TF-IDF) |
+| `UNMEET_API_KEY` | required for write endpoints outside development |
+
+## API
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/signals` | filters: `topic` (semantic), `intent`, `product`, `source`, `min_severity`, `since` |
+| `GET /api/v1/signals.csv` | same filters, CSV for Clay / Sheets / CRM import |
+| `GET/POST /api/v1/topics`, `DELETE /api/v1/topics/{id}` | saved topics (writes need the API key) |
+| `GET /api/v1/topics/{id}/signals` | best-matching signals for a topic |
+| `GET /api/v1/opportunities`, `/clusters`, `/trends`, `/analytics/summary` | clustered problems and trends |
+| `GET /api/v1/search` | semantic search over problems |
+
+Interactive docs at `/docs` when the API is running.
+
+## Development
 
 ```bash
-cd frontend
-npm install
-cp .env.example .env.local
-npm run dev
+ruff check . && mypy app && pytest
+TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/unmeet_test pytest  # + integration
+cd frontend && npm run lint && npm test && npm run build
 ```
 
-`frontend/.env.example` contiene l'unico URL della REST API usato dal frontend:
+Integration tests run on a real Postgres with pgvector (migrations vs ORM drift, upserts, vector
+search, JSONB filters); CI runs everything on every pull request. Schema changes go through
+Alembic: edit `app/database/models.py`, then `alembic revision --autogenerate -m "..."`.
 
-```dotenv
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
-```
+## Layout
 
-Riavviare `npm run dev` dopo aver creato o modificato `.env.local`. Il backend permette per
-default le origini locali `localhost:3000` e `127.0.0.1:3000`; in altri ambienti impostare
-`API_CORS_ORIGINS` con una lista separata da virgole.
-
-## Dashboard
-
-La dashboard Streamlit è al momento un placeholder e non è ancora collegata ai dati persistiti.
-
-```bash
-streamlit run app/dashboard/app.py
-```
-
-## Test
-
-```bash
-pytest
-```
-
-## Struttura
-
-- `app/ingestion`: connettori e schema delle fonti
-- `app/preprocessing`: pulizia, normalizzazione e deduplicazione
-- `app/problem_detection`: classificazione locale problema/non-problema
-- `app/embeddings`: generazione degli embedding locali
-- `app/database`: modelli SQLAlchemy, repository e DTO pubblici
-- `app/clustering`: HDBSCAN, labeling, matching tra run e trend detection
-- `app/analysis`: orchestrazione dell'analisi successiva all'ingestion
-- `app/api`: REST API FastAPI
-- `app/opportunities`: ranking delle opportunità
-- `app/market`: connettori sperimentali per market coverage
-- `app/dashboard`: dashboard locale
-- `app/services`: orchestrazione della pipeline
-- `scripts`: entry point operativi, import/export e valutazione
-- `docs`: documentazione architetturale e operativa
-- `tests`: test automatici
+- `app/ingestion` – source connectors · `app/preprocessing` – cleaning and dedup
+- `app/problem_detection` – LLM and Qwen3 classifiers · `app/llm` – OpenAI-compatible client
+- `app/embeddings`, `app/clustering`, `app/analysis` – vectors, clusters, labels, trends
+- `app/signals`, `app/topics` – signal queries, tracked topics, webhook delivery
+- `app/api` – FastAPI · `frontend` – Next.js · `migrations` – Alembic
+- `scripts` – run, analysis, alerts, evaluation · `docs` – architecture, audit, evaluation

@@ -8,23 +8,23 @@ from time import perf_counter
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.analysis.orchestrator import AnalysisOrchestrator
+from app.clustering.factory import build_cluster_labeler
 from app.clustering.hdbscan_clusterer import HDBSCANClusterer
 from app.clustering.matching import ClusterMatchingService
 from app.clustering.service import ClusteringService
-from app.clustering.topic_labeling import TopicLabelingService
 from app.clustering.trend_detection import TrendDetectionService
 from app.config import Settings
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.database.schemas import ClusterRunMetadata
 from app.embeddings.embedding_service import EmbeddingService
 from app.ingestion.factory import build_configured_connectors
-from app.problem_detection.qwen3 import Qwen3ProblemClassifier
+from app.problem_detection.factory import build_problem_classifier
 from app.problem_detection.service import ProblemDetectionService
-from app.services.pipeline import Pipeline
 from app.services.multi_source_ingestion import (
     MultiSourceIngestionResult,
     MultiSourceIngestionService,
 )
+from app.services.pipeline import Pipeline
 from app.services.preprocessing import PreprocessingService
 
 
@@ -38,7 +38,7 @@ class UnmeetApplication:
 def build_application(settings: Settings) -> UnmeetApplication:
     connectors = build_configured_connectors(settings)
     preprocessing_service = PreprocessingService()
-    classifier = Qwen3ProblemClassifier()
+    classifier = build_problem_classifier(settings)
     problem_detection_service = ProblemDetectionService(classifier)
     embedding_service = EmbeddingService(model_name=settings.embedding_model)
     source_item_repository = SourceItemRepository()
@@ -49,11 +49,12 @@ def build_application(settings: Settings) -> UnmeetApplication:
         repository=source_item_repository,
         embedding_service=embedding_service,
         problem_detection_service=problem_detection_service,
+        classification_workers=getattr(settings, "classification_workers", 1),
     )
 
-    clusterer = HDBSCANClusterer()
+    clusterer = HDBSCANClusterer.for_text_embeddings()
     clustering_service = ClusteringService(source_item_repository, clusterer)
-    topic_labeling_service = TopicLabelingService()
+    topic_labeling_service = build_cluster_labeler(settings)
     cluster_repository = ClusterRepository()
     cluster_matching_service = ClusterMatchingService()
     trend_detection_service = TrendDetectionService()
@@ -67,7 +68,7 @@ def build_application(settings: Settings) -> UnmeetApplication:
             embedding_model=embedding_service.model_name,
             min_cluster_size=clusterer.min_cluster_size,
             min_samples=clusterer.min_samples,
-            metric=clusterer.metric,
+            metric=clusterer.run_metric,
         ),
     )
     return UnmeetApplication(
@@ -140,6 +141,7 @@ def _format_summary(
         [
             "unMeet run complete",
             f"Posts acquired: {ingestion_result.acquired_count}",
+            f"Already classified (skipped): {ingestion_result.skipped_count}",
             f"Problems identified: {ingestion_result.problem_count}",
             f"Non-problem posts archived: {ingestion_result.non_problem_count}",
             f"Classification errors: {ingestion_result.classification_error_count}",

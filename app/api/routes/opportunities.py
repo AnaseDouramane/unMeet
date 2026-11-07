@@ -5,7 +5,6 @@ from app.api.errors import ApiError
 from app.api.routes.common import opportunity_response
 from app.api.schemas import OpportunityListResponse, TrendStatus
 
-
 router = APIRouter(prefix="/api/v1", tags=["opportunities"])
 
 

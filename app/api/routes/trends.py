@@ -6,7 +6,6 @@ from app.api.errors import ApiError
 from app.api.routes.common import trend_distribution_response
 from app.api.schemas import TimeSeriesPointResponse, TrendsResponse
 
-
 router = APIRouter(prefix="/api/v1", tags=["trends"])
 
 

@@ -1,6 +1,7 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Mapping
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,10 @@ class PersistedSourceItem:
     published_at: datetime
     processed_at: datetime | None
     engagement_score: int | None
+    signal_intent: str | None = None
+    pain_quote: str | None = None
+    products_mentioned: tuple[str, ...] = ()
+    signal_severity: int | None = None
 
 
 @dataclass(frozen=True)

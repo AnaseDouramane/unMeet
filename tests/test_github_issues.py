@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import requests
@@ -50,7 +50,7 @@ def test_github_connector_maps_issues_to_utc_source_items() -> None:
     assert item.body == "This currently takes too much time."
     assert item.author == "alice"
     assert item.engagement_score == 3
-    assert item.published_at == datetime(2024, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    assert item.published_at == datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)
     assert item.raw_payload["number"] == 7
 
 

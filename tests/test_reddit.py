@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import requests
@@ -46,8 +46,8 @@ def test_reddit_connector_maps_a_post_to_source_item() -> None:
     assert item.body == "I manually combine reports every week."
     assert item.url == "https://reddit.example/abc"
     assert item.author == "alice"
-    assert item.published_at == datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
-    assert item.published_at.tzinfo is timezone.utc
+    assert item.published_at == datetime.fromtimestamp(1_700_000_000, tz=UTC)
+    assert item.published_at.tzinfo is UTC
     assert item.engagement_score == 42
     assert item.raw_payload["id"] == "abc"
 
@@ -109,3 +109,72 @@ def test_reddit_http_client_wraps_request_errors(monkeypatch) -> None:
 
     with pytest.raises(RedditApiError, match="Reddit API request failed"):
         RedditHttpClient("unMeet/test").fetch_posts("python", "new", 10)
+
+
+class _Response:
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict:
+        return self.payload
+
+
+def test_reddit_http_client_uses_oauth_and_caches_the_token(monkeypatch) -> None:
+    now = [100.0]
+    token_requests: list[dict] = []
+    listing_requests: list[dict] = []
+
+    def fake_post(url, auth, data, headers, timeout):
+        token_requests.append({"url": url, "auth": auth, "data": data})
+        return _Response({"access_token": f"token-{len(token_requests)}", "expires_in": 3600})
+
+    def fake_get(url, params, headers, timeout):
+        listing_requests.append({"url": url, "headers": headers, "params": params})
+        return _Response({"data": {"children": [{"data": _post("p1")}]}})
+
+    monkeypatch.setattr("app.ingestion.reddit.requests.post", fake_post)
+    monkeypatch.setattr("app.ingestion.reddit.requests.get", fake_get)
+    client = RedditHttpClient("unMeet/test", "id", "secret", clock=lambda: now[0])
+
+    client.fetch_posts("sales", "new", 25)
+    client.fetch_posts("sales", "hot", 25)
+    now[0] += 3600
+    client.fetch_posts("sales", "new", 25)
+
+    assert [request["auth"] for request in token_requests] == [("id", "secret")] * 2
+    assert token_requests[0]["data"] == {"grant_type": "client_credentials"}
+    assert listing_requests[0]["url"] == "https://oauth.reddit.com/r/sales/new"
+    assert listing_requests[0]["headers"]["Authorization"] == "Bearer token-1"
+    assert listing_requests[1]["headers"]["Authorization"] == "Bearer token-1"
+    assert listing_requests[2]["headers"]["Authorization"] == "Bearer token-2"
+    assert listing_requests[0]["params"]["raw_json"] == 1
+
+
+def test_reddit_http_client_without_credentials_uses_public_json(monkeypatch) -> None:
+    seen: list[str] = []
+
+    def fake_get(url, params, headers, timeout):
+        seen.append(url)
+        assert "Authorization" not in headers
+        return _Response({"data": {"children": []}})
+
+    monkeypatch.setattr("app.ingestion.reddit.requests.get", fake_get)
+
+    client = RedditHttpClient("unMeet/test")
+    client.fetch_posts("sales", "new", 5)
+
+    assert client.uses_oauth is False
+    assert seen == ["https://www.reddit.com/r/sales/new.json"]
+
+
+def test_reddit_oauth_errors_are_wrapped(monkeypatch) -> None:
+    def failed_post(*args, **kwargs):
+        raise requests.ConnectionError("dns")
+
+    monkeypatch.setattr("app.ingestion.reddit.requests.post", failed_post)
+
+    with pytest.raises(RedditApiError, match="OAuth token request failed"):
+        RedditHttpClient("unMeet/test", "id", "secret").fetch_posts("sales", "new", 5)

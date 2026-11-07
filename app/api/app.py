@@ -7,12 +7,24 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.dependencies import ApiDependencies, DatabaseUnavailableError, build_default_dependencies
+from app.api.dependencies import (
+    ApiDependencies,
+    DatabaseUnavailableError,
+    build_default_dependencies,
+)
 from app.api.errors import ApiError
-from app.api.routes import analytics, clusters, health, opportunities, search, trends
+from app.api.routes import (
+    analytics,
+    clusters,
+    health,
+    opportunities,
+    search,
+    signals,
+    topics,
+    trends,
+)
 from app.api.schemas import ErrorResponse
 from app.config import Settings
-
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +35,14 @@ def create_app(
 ) -> FastAPI:
     api_settings = settings or Settings()
     app = FastAPI(title=api_settings.api_title, version=api_settings.api_version)
+    app.state.settings = api_settings
     app.state.dependencies = dependencies or build_default_dependencies(api_settings.embedding_model)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(api_settings.api_cors_origins),
         allow_credentials=True,
-        allow_methods=["GET"],
-        allow_headers=["Content-Type"],
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["Content-Type", "Authorization", "X-API-Key"],
     )
     _register_error_handlers(app)
     app.include_router(health.router)
@@ -38,6 +51,8 @@ def create_app(
     app.include_router(clusters.router)
     app.include_router(trends.router)
     app.include_router(search.router)
+    app.include_router(signals.router)
+    app.include_router(topics.router)
     return app
 
 

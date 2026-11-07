@@ -1,9 +1,9 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from app.analysis.orchestrator import AnalysisOrchestrator
-from app.clustering.schemas import ClusterMatch, ClusterTrend, ClusterableDocument
+from app.clustering.schemas import ClusterableDocument, ClusterMatch, ClusterTrend
 from app.clustering.service import ClusteringResult, DocumentCluster
 from app.clustering.topic_labeling import TopicLabel
 from app.database.schemas import (
@@ -15,7 +15,7 @@ from app.database.schemas import (
 )
 
 METADATA = ClusterRunMetadata("model-a", 5, None, "euclidean")
-CREATED_AT = datetime(2026, 1, 2, tzinfo=timezone.utc)
+CREATED_AT = datetime(2026, 1, 2, tzinfo=UTC)
 
 
 def _document(document_id: int, value: float, model: str = "model-a") -> ClusterableDocument:

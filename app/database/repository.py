@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, case, exists, func, literal, select
+from sqlalchemy import cast as sql_cast
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
-from app.clustering.schemas import ClusterTrend, ClusterableDocument
+from app.clustering.schemas import ClusterableDocument, ClusterTrend, TrendStatus
 from app.database.models import (
     ClusterModel,
     ClusterRunModel,
@@ -32,6 +34,11 @@ from app.ingestion.schemas import SourceItem
 from app.preprocessing.schemas import PreparedDocument
 from app.problem_detection.schemas import ProblemDetectionResult
 from app.problem_detection.service import validate_problem_detection_result
+from app.signals.schemas import Signal, SignalQuery
+
+if TYPE_CHECKING:
+    from app.clustering.service import DocumentCluster
+    from app.clustering.topic_labeling import TopicLabel
 
 
 class SourceItemRepository:
@@ -121,6 +128,89 @@ class SourceItemRepository:
         finally:
             self._close_session(session)
 
+    def find_signals(self, query: SignalQuery) -> tuple[Signal, ...]:
+        """Return classified problems matching the signal filters.
+
+        Product filters match case-insensitively against any mentioned product. With a query
+        embedding, results are limited to ``max_distance`` and ordered by similarity;
+        otherwise by publication date, newest first.
+        """
+        filters: list[ColumnElement[bool]] = [SourceItemModel.is_problem.is_(True)]
+        if query.intents:
+            filters.append(SourceItemModel.signal_intent.in_(query.intents))
+        if query.sources:
+            filters.append(SourceItemModel.source.in_(query.sources))
+        if query.min_severity is not None:
+            filters.append(SourceItemModel.signal_severity >= query.min_severity)
+        if query.published_since is not None:
+            filters.append(SourceItemModel.published_at >= query.published_since)
+        if query.processed_since is not None:
+            filters.append(SourceItemModel.processed_at > query.processed_since)
+        if query.products:
+            # Rows written before none_as_null may hold a JSON null scalar; treat it as [].
+            products_array = case(
+                (
+                    func.jsonb_typeof(SourceItemModel.products_mentioned) == "array",
+                    SourceItemModel.products_mentioned,
+                ),
+                else_=sql_cast(literal("[]"), JSONB),
+            )
+            product = func.jsonb_array_elements_text(products_array).table_valued("value")
+            filters.append(
+                exists(
+                    select(1)
+                    .select_from(product)
+                    .where(func.lower(product.c.value).in_([p.lower() for p in query.products]))
+                )
+            )
+
+        distance = None
+        if query.query_embedding is not None:
+            normalized = self._normalize_embedding(query.query_embedding)
+            assert normalized is not None
+            distance = SourceItemModel.embedding.cosine_distance(normalized)
+            filters.append(SourceItemModel.embedding_model == query.embedding_model)
+            filters.append(SourceItemModel.embedding.is_not(None))
+            filters.append(distance <= query.max_distance)
+
+        columns = [SourceItemModel] + ([distance.label("distance")] if distance is not None else [])
+        statement = select(*columns).where(*filters)
+        if distance is not None:
+            statement = statement.order_by(distance, SourceItemModel.id)
+        else:
+            statement = statement.order_by(
+                SourceItemModel.published_at.desc(), SourceItemModel.id.desc()
+            )
+        statement = statement.offset(query.offset).limit(query.limit)
+
+        session = self._open_session()
+        try:
+            rows = session.execute(statement).all()
+            return tuple(
+                self._to_signal(row[0], None if distance is None else float(row[1]))
+                for row in rows
+            )
+        finally:
+            self._close_session(session)
+
+    @staticmethod
+    def _to_signal(model: SourceItemModel, distance: float | None) -> Signal:
+        return Signal(
+            id=model.id,
+            source=model.source,
+            external_id=model.external_id,
+            title=model.clean_title or model.title,
+            url=model.url,
+            author=model.author,
+            published_at=model.published_at,
+            intent=model.signal_intent,
+            pain_quote=model.pain_quote,
+            products_mentioned=tuple(model.products_mentioned or ()),
+            severity=model.signal_severity,
+            confidence=float(model.problem_confidence or 0.0),
+            similarity=None if distance is None else round(1.0 - distance, 4),
+        )
+
     def count_problems_by_source(self) -> tuple[tuple[str, int], ...]:
         session = self._open_session()
         try:
@@ -160,7 +250,7 @@ class SourceItemRepository:
             model = SourceItemModel()
             self._apply_source_item(model, source_item)
             self._apply_prepared_document(model, prepared_document)
-            model.processed_at = datetime.now(timezone.utc)
+            model.processed_at = datetime.now(UTC)
             session.add(model)
             session.commit()
             return True
@@ -252,7 +342,7 @@ class SourceItemRepository:
             if normalized_embedding is not None:
                 model.embedding = normalized_embedding
                 model.embedding_model = normalized_embedding_model
-            model.processed_at = datetime.now(timezone.utc)
+            model.processed_at = datetime.now(UTC)
 
             if existing is None:
                 session.add(model)
@@ -294,6 +384,10 @@ class SourceItemRepository:
             published_at=model.published_at,
             processed_at=model.processed_at,
             engagement_score=model.engagement_score,
+            signal_intent=model.signal_intent,
+            pain_quote=model.pain_quote,
+            products_mentioned=tuple(model.products_mentioned or ()),
+            signal_severity=model.signal_severity,
         )
 
     @staticmethod
@@ -343,7 +437,11 @@ class SourceItemRepository:
         model.problem_confidence = float(result.confidence)
         model.problem_reason = result.reason
         model.problem_classifier = result.classifier_name
-        model.classified_at = datetime.now(timezone.utc)
+        model.classified_at = datetime.now(UTC)
+        model.signal_intent = result.intent
+        model.pain_quote = result.pain_quote
+        model.products_mentioned = list(result.products_mentioned) or None
+        model.signal_severity = result.severity
         if not result.is_problem:
             model.embedding = None
             model.embedding_model = None
@@ -434,8 +532,8 @@ class ClusterRepository:
 
     def save(
         self,
-        cluster: "DocumentCluster",
-        topic_label: "TopicLabel",
+        cluster: DocumentCluster,
+        topic_label: TopicLabel,
         metadata: ClusterRunMetadata,
         centroid: Sequence[float] | None = None,
     ) -> PersistedCluster:
@@ -443,7 +541,7 @@ class ClusterRepository:
 
     def save_run(
         self,
-        clusters: Sequence[tuple["DocumentCluster", "TopicLabel", Sequence[float] | None]],
+        clusters: Sequence[tuple[DocumentCluster, TopicLabel, Sequence[float] | None]],
         metadata: ClusterRunMetadata,
     ) -> PersistedClusterRun:
         normalized_metadata = self._normalize_metadata(metadata)
@@ -681,7 +779,7 @@ class ClusterRepository:
                     previous_count=model.previous_count,
                     absolute_change=model.absolute_change,
                     growth_rate=model.growth_rate,
-                    status=model.status,
+                    status=cast(TrendStatus, model.status),
                     similarity=model.similarity,
                 )
                 for model in models
@@ -737,8 +835,8 @@ class ClusterRepository:
     def save_to_run(
         self,
         run_id: int,
-        cluster: "DocumentCluster",
-        topic_label: "TopicLabel",
+        cluster: DocumentCluster,
+        topic_label: TopicLabel,
         centroid: Sequence[float] | None = None,
     ) -> PersistedCluster:
         session = self._session_factory()
@@ -775,8 +873,8 @@ class ClusterRepository:
         self,
         session: Session,
         run: ClusterRunModel,
-        cluster: "DocumentCluster",
-        topic_label: "TopicLabel",
+        cluster: DocumentCluster,
+        topic_label: TopicLabel,
         centroid: Sequence[float] | None,
         lookup_existing: bool,
     ) -> ClusterModel:
@@ -875,8 +973,8 @@ class ClusterRepository:
 
     @staticmethod
     def _validate_cluster(
-        cluster: "DocumentCluster",
-        topic_label: "TopicLabel",
+        cluster: DocumentCluster,
+        topic_label: TopicLabel,
         embedding_model: str,
     ) -> None:
         if not cluster.documents:
@@ -887,7 +985,7 @@ class ClusterRepository:
             raise ValueError("cluster documents must use the run embedding_model")
 
     @staticmethod
-    def _calculate_centroid(cluster: "DocumentCluster") -> list[float]:
+    def _calculate_centroid(cluster: DocumentCluster) -> list[float]:
         embeddings = [document.embedding for document in cluster.documents]
         return np.mean(np.asarray(embeddings, dtype=float), axis=0).tolist()
 

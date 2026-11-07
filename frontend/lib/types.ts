@@ -96,3 +96,68 @@ export interface TrendsResponse {
 export interface SearchResponse {
   items: PublicDocument[];
 }
+
+export type SignalIntent =
+  | "pain_point"
+  | "feature_request"
+  | "solution_search"
+  | "competitor_complaint";
+
+export interface Signal {
+  id: number;
+  source: string;
+  title: string;
+  url: string;
+  author: string | null;
+  published_at: string;
+  intent: SignalIntent | "none" | null;
+  pain_quote: string | null;
+  products_mentioned: string[];
+  severity: number | null;
+  confidence: number;
+  similarity: number | null;
+}
+
+export interface SignalListResponse {
+  items: Signal[];
+  limit: number;
+  offset: number;
+}
+
+export interface SignalFilters {
+  topic?: string;
+  intent?: SignalIntent[];
+  product?: string[];
+  source?: string[];
+  min_severity?: number;
+  since?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface Topic {
+  id: number;
+  name: string;
+  description: string | null;
+  intents: SignalIntent[];
+  products: string[];
+  sources: string[];
+  min_severity: number | null;
+  max_distance: number;
+  has_webhook: boolean;
+  created_at: string | null;
+  last_delivered_at: string | null;
+}
+
+export interface TopicListResponse {
+  items: Topic[];
+}
+
+export interface TopicInput {
+  name: string;
+  description?: string;
+  intents?: SignalIntent[];
+  products?: string[];
+  min_severity?: number;
+  webhook_url?: string;
+}

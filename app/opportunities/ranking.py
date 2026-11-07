@@ -41,7 +41,7 @@ class OpportunityRankingResult:
 
 
 class OpportunityRankingService:
-    _STATUS_VALUES = {"new", "rising", "stable", "falling"}
+    _STATUS_VALUES = frozenset({"new", "rising", "stable", "falling"})
     _WEIGHT_TOLERANCE = 1e-9
 
     def __init__(

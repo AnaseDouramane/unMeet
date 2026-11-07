@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.exc import OperationalError
 
@@ -42,7 +42,7 @@ def _result(
 ) -> AnalysisRunResult:
     return AnalysisRunResult(
         run_id=42,
-        created_at=datetime(2026, 7, 21, tzinfo=timezone.utc),
+        created_at=datetime(2026, 7, 21, tzinfo=UTC),
         cluster_count=0,
         document_count=document_count,
         clusters=(),
@@ -116,7 +116,7 @@ def test_build_application_uses_settings_embedding_model(monkeypatch) -> None:
 
     monkeypatch.setattr(run_analysis, "SourceItemRepository", lambda: object())
     monkeypatch.setattr(run_analysis, "ClusteringService", lambda repository, clusterer: object())
-    monkeypatch.setattr(run_analysis, "TopicLabelingService", lambda: object())
+    monkeypatch.setattr(run_analysis, "build_cluster_labeler", lambda settings: object())
     monkeypatch.setattr(run_analysis, "ClusterRepository", lambda: object())
     monkeypatch.setattr(run_analysis, "ClusterMatchingService", lambda: object())
     monkeypatch.setattr(run_analysis, "TrendDetectionService", lambda: object())

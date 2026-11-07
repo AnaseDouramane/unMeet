@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.analysis.orchestrator import AnalysisRunResult
@@ -36,7 +36,7 @@ class FakeAnalysisOrchestrator:
             raise self.error
         return AnalysisRunResult(
             run_id=17,
-            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
             cluster_count=3,
             document_count=4,
             clusters=(),
@@ -185,7 +185,7 @@ def test_build_application_wires_multiple_connectors_with_factories(monkeypatch)
     clusterer = type(
         "Clusterer",
         (),
-        {"min_cluster_size": 5, "min_samples": None, "metric": "euclidean"},
+        {"min_cluster_size": 5, "min_samples": None, "run_metric": "euclidean"},
     )()
     multi_source_kwargs = {}
 
@@ -195,14 +195,18 @@ def test_build_application_wires_multiple_connectors_with_factories(monkeypatch)
         lambda settings: (connector, reddit_connector, github_connector),
     )
     monkeypatch.setattr(run_unmeet, "PreprocessingService", lambda: preprocessing_service)
-    monkeypatch.setattr(run_unmeet, "Qwen3ProblemClassifier", lambda: object())
+    monkeypatch.setattr(run_unmeet, "build_problem_classifier", lambda settings: object())
     monkeypatch.setattr(run_unmeet, "ProblemDetectionService", lambda classifier: object())
     monkeypatch.setattr(run_unmeet, "EmbeddingService", lambda model_name: embedding_service)
     monkeypatch.setattr(run_unmeet, "SourceItemRepository", lambda: object())
     monkeypatch.setattr(run_unmeet, "Pipeline", lambda **kwargs: pipeline)
-    monkeypatch.setattr(run_unmeet, "HDBSCANClusterer", lambda: clusterer)
+    monkeypatch.setattr(
+        run_unmeet,
+        "HDBSCANClusterer",
+        type("ClustererFactory", (), {"for_text_embeddings": staticmethod(lambda: clusterer)}),
+    )
     monkeypatch.setattr(run_unmeet, "ClusteringService", lambda repository, clusterer: object())
-    monkeypatch.setattr(run_unmeet, "TopicLabelingService", lambda: object())
+    monkeypatch.setattr(run_unmeet, "build_cluster_labeler", lambda settings: object())
     monkeypatch.setattr(run_unmeet, "ClusterRepository", lambda: object())
     monkeypatch.setattr(run_unmeet, "ClusterMatchingService", lambda: object())
     monkeypatch.setattr(run_unmeet, "TrendDetectionService", lambda: object())

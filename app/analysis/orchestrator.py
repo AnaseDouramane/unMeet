@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 from app.clustering.schemas import ClusterCentroid, ClusterMatch, ClusterTrend, TrendCluster
@@ -103,7 +104,7 @@ class AnalysisOrchestrator:
         self._cluster_matching_service = cluster_matching_service
         self._trend_detection_service = trend_detection_service
         self._metadata = metadata
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     def run(self) -> AnalysisRunResult:
         clustering_result = self._clustering_service.cluster_documents_with_summary(
@@ -125,7 +126,7 @@ class AnalysisOrchestrator:
             self._metadata,
             exclude_run_id=persisted_run.id,
         )
-        previous_clusters = ()
+        previous_clusters: tuple[PersistedClusterDetails, ...] = ()
         if previous_run is not None:
             self._validate_previous_run(previous_run)
             previous_clusters = tuple(
@@ -194,10 +195,8 @@ class AnalysisOrchestrator:
                 None if previous_run is None else previous_run.id,
             )
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 self._cluster_repository.delete_run(persisted_run.id)
-            except Exception:
-                pass
             raise
         return AnalysisRunResult(
             run_id=persisted_run.id,

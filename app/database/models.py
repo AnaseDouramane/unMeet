@@ -59,6 +59,10 @@ class SourceItemModel(Base):
             name="ck_source_items_problem_confidence_range",
         ),
         CheckConstraint(
+            "signal_severity IS NULL OR signal_severity BETWEEN 1 AND 3",
+            name="ck_source_items_signal_severity_range",
+        ),
+        CheckConstraint(
             "embedding IS NULL OR is_problem IS TRUE",
             name="ck_source_items_embedding_requires_problem",
         ),
@@ -83,6 +87,12 @@ class SourceItemModel(Base):
     problem_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     problem_classifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
     classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signal_intent: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    pain_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    products_mentioned: Mapped[list[str] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    signal_severity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
     dedup_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -172,3 +182,36 @@ class ClusterTrendModel(Base):
     growth_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class TrackedTopicModel(Base):
+    """A saved signal search that is re-run on new data and delivered to a webhook."""
+
+    __tablename__ = "tracked_topics"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_tracked_topics_name"),
+        CheckConstraint(
+            "min_severity IS NULL OR min_severity BETWEEN 1 AND 3",
+            name="ck_tracked_topics_min_severity_range",
+        ),
+        CheckConstraint(
+            "max_distance > 0 AND max_distance <= 2",
+            name="ck_tracked_topics_max_distance_range",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    intents: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    products: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    sources: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    min_severity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_distance: Mapped[float] = mapped_column(Float, nullable=False, default=0.6)
+    webhook_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

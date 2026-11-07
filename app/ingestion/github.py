@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import requests
@@ -38,16 +38,17 @@ class GitHubHttpClient:
         headers = {"Accept": "application/vnd.github+json"}
         if self._token is not None:
             headers["Authorization"] = f"Bearer {self._token}"
+        params: dict[str, str | int] = {
+            "state": state,
+            "sort": sort,
+            "direction": "desc",
+            "per_page": per_page,
+            "page": page,
+        }
         try:
             response = requests.get(
                 f"{self.base_url}/repos/{repository}/issues",
-                params={
-                    "state": state,
-                    "sort": sort,
-                    "direction": "desc",
-                    "per_page": per_page,
-                    "page": page,
-                },
+                params=params,
                 headers=headers,
                 timeout=self._timeout_seconds,
             )
@@ -85,7 +86,7 @@ class GitHubIssuesConnector(SourceConnector):
     @classmethod
     def from_settings(
         cls, settings: Settings, client: GitHubIssuesClient | None = None
-    ) -> "GitHubIssuesConnector":
+    ) -> GitHubIssuesConnector:
         return cls(
             repositories=settings.github_repositories,
             limit=settings.github_issues_limit,
@@ -143,7 +144,7 @@ class GitHubIssuesConnector(SourceConnector):
             external_id=f"{repository}#{number}",
             source=cls.source,
             title=title,
-            body=issue.get("body") if isinstance(issue.get("body"), str) else "",
+            body=issue_body if isinstance(issue_body := issue.get("body"), str) else "",
             url=html_url,
             author=author if isinstance(author, str) and author.strip() else None,
             published_at=published_at,
@@ -161,7 +162,7 @@ class GitHubIssuesConnector(SourceConnector):
             return None
         if parsed.tzinfo is None or parsed.utcoffset() is None:
             return None
-        return parsed.astimezone(timezone.utc)
+        return parsed.astimezone(UTC)
 
     @staticmethod
     def _normalize_repositories(repositories: Sequence[str]) -> tuple[str, ...]:

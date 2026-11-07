@@ -1,5 +1,5 @@
 import inspect
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -122,7 +122,7 @@ def _source_item(index: int) -> SourceItem:
         body=f"<p>Body {index}</p>",
         url=f"https://example.com/{index}",
         author="alice",
-        published_at=datetime.fromtimestamp(1_700_000_000 + index, tz=timezone.utc),
+        published_at=datetime.fromtimestamp(1_700_000_000 + index, tz=UTC),
         engagement_score=index,
         raw_payload={"id": index, "type": "story"},
     )
@@ -339,3 +339,139 @@ def test_pipeline_continues_after_a_semantically_invalid_output_then_valid_outpu
     assert embedding_service.calls == [accepted_documents[0].document_text]
     assert pipeline.last_run_stats is not None
     assert pipeline.last_run_stats.classification_error_count == 1
+
+
+class ExistingItemsRepository(FakeRepository):
+    """Repository fake that reports some items as already classified."""
+
+    def __init__(self, classified: dict[str, str | None]) -> None:
+        super().__init__()
+        self._classified = classified
+        self.lookups: list[tuple[str, str]] = []
+
+    def get_by_source_and_external_id(self, source: str, external_id: str):
+        self.lookups.append((source, external_id))
+        if external_id not in self._classified:
+            return None
+        return type(
+            "Persisted",
+            (),
+            {"is_problem": True, "dedup_hash": self._classified[external_id]},
+        )()
+
+
+def _pipeline_with(repository, detection_service, connector=None) -> Pipeline:
+    return Pipeline(
+        settings=type("SettingsStub", (), {"environment": "test"})(),
+        connector=connector or FakeMixedConnector(),
+        preprocessing_service=PreprocessingService(),
+        repository=repository,
+        embedding_service=FakeEmbeddingService(),
+        problem_detection_service=detection_service,
+    )
+
+
+def test_pipeline_skips_items_already_classified_with_same_content() -> None:
+    hash_of_item_1 = PreprocessingService().prepare(_source_item(1)).dedup_hash
+    repository = ExistingItemsRepository({"1": hash_of_item_1})
+    detection = FakeProblemDetectionService([_result(True), _result(True)])
+    pipeline = _pipeline_with(repository, detection)
+
+    documents = pipeline.run()
+
+    assert [document.source_item.external_id for document in documents] == ["0", "2"]
+    assert len(detection.calls) == 2
+    assert [saved[0].external_id for saved in repository.saved] == ["0", "2"]
+    assert pipeline.last_run_stats is not None
+    assert pipeline.last_run_stats.acquired_count == 3
+    assert pipeline.last_run_stats.skipped_count == 1
+
+
+def test_pipeline_reclassifies_items_whose_content_changed() -> None:
+    repository = ExistingItemsRepository({"1": "stale-hash"})
+    detection = FakeProblemDetectionService([_result(True)] * 3)
+    pipeline = _pipeline_with(repository, detection)
+
+    pipeline.run()
+
+    assert len(detection.calls) == 3
+    assert pipeline.last_run_stats is not None
+    assert pipeline.last_run_stats.skipped_count == 0
+
+
+class ConcurrentClassifier:
+    classifier_name = "concurrent-test"
+
+    def __init__(self) -> None:
+        import threading
+
+        self.thread_names: set[str] = set()
+        self._lock = threading.Lock()
+
+    def classify(self, document_text: str) -> ProblemDetectionResult:
+        import threading
+        import time
+
+        time.sleep(0.01)
+        with self._lock:
+            self.thread_names.add(threading.current_thread().name)
+        if document_text.endswith("Body 3"):
+            raise MalformedClassifierOutputError("broken json")
+        return _result(int(document_text.rsplit(" ", 1)[-1]) % 2 == 0)
+
+
+def test_concurrent_classification_keeps_source_order_and_counts() -> None:
+    classifier = ConcurrentClassifier()
+    repository = FakeRepository()
+    pipeline = Pipeline(
+        settings=type("SettingsStub", (), {"environment": "test"})(),
+        connector=FakeBatchConnector(20),
+        preprocessing_service=PreprocessingService(),
+        repository=repository,
+        embedding_service=FakeEmbeddingService(),
+        problem_detection_service=ProblemDetectionService(classifier),
+        classification_workers=4,
+    )
+
+    documents = pipeline.run()
+
+    assert [saved[0].external_id for saved in repository.saved] == [str(i) for i in range(20)]
+    assert [d.source_item.external_id for d in documents] == [str(i) for i in range(0, 20, 2)]
+    assert len(classifier.thread_names) > 1
+    assert pipeline.last_run_stats is not None
+    assert pipeline.last_run_stats.classification_error_count == 1
+    assert pipeline.last_run_stats.non_problem_count == 10
+
+
+class FailingAfterConnector:
+    def fetch(self):
+        yield _source_item(0)
+        yield _source_item(1)
+        raise RuntimeError("connector lost")
+
+
+def test_items_fetched_before_a_connector_failure_are_persisted() -> None:
+    repository = FakeRepository()
+    pipeline = _pipeline_with(
+        repository,
+        FakeProblemDetectionService([_result(True), _result(False)]),
+        connector=FailingAfterConnector(),
+    )
+
+    with pytest.raises(RuntimeError, match="connector lost"):
+        pipeline.run()
+
+    assert [saved[0].external_id for saved in repository.saved] == ["0", "1"]
+
+
+def test_classification_workers_must_be_positive() -> None:
+    with pytest.raises(ValueError, match="classification_workers"):
+        Pipeline(
+            settings=None,  # type: ignore[arg-type]
+            connector=FakeMixedConnector(),
+            preprocessing_service=PreprocessingService(),
+            repository=FakeRepository(),
+            embedding_service=FakeEmbeddingService(),
+            problem_detection_service=FakeProblemDetectionService([]),
+            classification_workers=0,
+        )

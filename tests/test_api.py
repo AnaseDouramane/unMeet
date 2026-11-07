@@ -20,9 +20,14 @@ from app.api.dependencies import (
     PublicDocument,
     RepositoryAnalyticsReadFacade,
 )
-from app.database.schemas import ClusterRunMetadata, PersistedClusterDocument, PersistedClusterRunDetails
-from app.database.schemas import ClusterOpportunityStatistics, PersistedClusterDetails
 from app.clustering.schemas import ClusterTrend
+from app.database.schemas import (
+    ClusterOpportunityStatistics,
+    ClusterRunMetadata,
+    PersistedClusterDetails,
+    PersistedClusterDocument,
+    PersistedClusterRunDetails,
+)
 
 
 def _item(
