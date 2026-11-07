@@ -7,6 +7,7 @@ from app.database.models import SignalTopicMatchModel
 from app.database.repository import SourceItemRepository
 from app.problem_detection.schemas import ProblemDetectionResult, TopicMatch
 from app.services.preprocessing import PreprocessingService
+from app.signals.schemas import SignalQuery
 from app.topics.repository import TopicRepository
 from app.topics.schemas import TopicDefinition
 from tests.integration.test_database import MODEL, _item, _problem, _unit
@@ -74,3 +75,35 @@ def test_deleting_a_topic_removes_its_matches(session_factory: sessionmaker[Sess
     )
     TopicRepository(session_factory).delete(crm)
     assert _matches(session_factory) == {(saved.id, billing): "b"}
+
+
+def test_topic_feed_is_annotated_with_the_reason_for_that_topic_only(
+    session_factory: sessionmaker[Session],
+) -> None:
+    crm, billing = _topics(session_factory)
+    repository = SourceItemRepository(session_factory)
+    _save(
+        repository,
+        replace(
+            _problem(),
+            topic_matches=(TopicMatch(crm, "Cleans duplicates."), TopicMatch(billing, "Invoices.")),
+        ),
+    )
+    other = _item("m2", "Unrelated pain")
+    repository.save(other, PreprocessingService().prepare(other), _unit(2), MODEL, _problem())
+
+    plain = {s.external_id: s.relevance_reason for s in repository.find_signals(SignalQuery())}
+    for_crm = {
+        s.external_id: s.relevance_reason
+        for s in repository.find_signals(SignalQuery(topic_id=crm))
+    }
+    for_billing = {
+        s.external_id: s.relevance_reason
+        for s in repository.find_signals(SignalQuery(topic_id=billing))
+    }
+
+    assert plain == {"m1": None, "m2": None}
+    assert for_crm == {"m1": "Cleans duplicates.", "m2": None}
+    assert for_billing == {"m1": "Invoices.", "m2": None}
+    # Annotating must not duplicate or drop rows.
+    assert len(repository.find_signals(SignalQuery(topic_id=crm))) == 2

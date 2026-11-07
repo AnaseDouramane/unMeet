@@ -128,6 +128,10 @@ class SignalResponse(BaseModel):
     similarity: float | None = Field(
         default=None, description="Cosine similarity to the topic, when a topic was given"
     )
+    relevance_reason: str | None = Field(
+        default=None,
+        description="Why the model judged this a match for the tracked topic (topic feeds only)",
+    )
 
 
 class SignalListResponse(BaseModel):

@@ -176,7 +176,19 @@ class SourceItemRepository:
             filters.append(distance <= query.max_distance)
 
         columns = [SourceItemModel] + ([distance.label("distance")] if distance is not None else [])
-        statement = select(*columns).where(*filters)
+        columns.append(
+            SignalTopicMatchModel.reason.label("relevance_reason")
+            if query.topic_id is not None
+            else literal(None).label("relevance_reason")
+        )
+        statement = select(*columns).select_from(SourceItemModel)
+        if query.topic_id is not None:
+            statement = statement.outerjoin(
+                SignalTopicMatchModel,
+                (SignalTopicMatchModel.source_item_id == SourceItemModel.id)
+                & (SignalTopicMatchModel.topic_id == query.topic_id),
+            )
+        statement = statement.where(*filters)
         if distance is not None:
             statement = statement.order_by(distance, SourceItemModel.id)
         else:
@@ -189,14 +201,20 @@ class SourceItemRepository:
         try:
             rows = session.execute(statement).all()
             return tuple(
-                self._to_signal(row[0], None if distance is None else float(row[1]))
+                self._to_signal(
+                    row[0],
+                    None if distance is None else float(row[1]),
+                    row._mapping["relevance_reason"],
+                )
                 for row in rows
             )
         finally:
             self._close_session(session)
 
     @staticmethod
-    def _to_signal(model: SourceItemModel, distance: float | None) -> Signal:
+    def _to_signal(
+        model: SourceItemModel, distance: float | None, relevance_reason: str | None = None
+    ) -> Signal:
         return Signal(
             id=model.id,
             source=model.source,
@@ -211,6 +229,7 @@ class SourceItemRepository:
             severity=model.signal_severity,
             confidence=float(model.problem_confidence or 0.0),
             similarity=None if distance is None else round(1.0 - distance, 4),
+            relevance_reason=relevance_reason,
         )
 
     def count_problems_by_source(self) -> tuple[tuple[str, int], ...]:

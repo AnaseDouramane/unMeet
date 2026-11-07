@@ -116,6 +116,7 @@ export interface Signal {
   severity: number | null;
   confidence: number;
   similarity: number | null;
+  relevance_reason?: string | null;
 }
 
 export interface SignalListResponse {

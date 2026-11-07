@@ -58,6 +58,7 @@ def _signal_response(signal: Signal) -> SignalResponse:
         severity=signal.severity,
         confidence=signal.confidence,
         similarity=signal.similarity,
+        relevance_reason=signal.relevance_reason,
     )
 
 

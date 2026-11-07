@@ -22,5 +22,6 @@ def topic_signal_query(
         max_distance=topic.max_distance,
         limit=limit,
         offset=offset,
+        topic_id=topic.id or None,
     )
     return query, topic.description

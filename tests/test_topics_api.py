@@ -119,4 +119,5 @@ def test_topic_signals_reuse_the_topic_filters() -> None:
     assert query.products == ("HubSpot",)
     assert query.min_severity == 2
     assert query.limit == 10
+    assert query.topic_id == topic_id
     assert client.get("/api/v1/topics/999/signals").status_code == 404

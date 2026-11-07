@@ -37,6 +37,19 @@ describe("signals", () => {
     expect(screen.getByRole("link", { name: "Open original" })).toHaveAttribute("href", signal.url);
   });
 
+  it("explains why a signal matches the topic when the model gave a reason", () => {
+    render(<SignalCard signal={{ ...signal, relevance_reason: "Cleans duplicate contacts by hand." }} />);
+
+    expect(screen.getByText("Cleans duplicate contacts by hand.")).toBeInTheDocument();
+    expect(screen.getByText("Why it matches:")).toBeInTheDocument();
+  });
+
+  it("shows no reason line without one", () => {
+    render(<SignalCard signal={signal} />);
+
+    expect(screen.queryByText("Why it matches:")).not.toBeInTheDocument();
+  });
+
   it("falls back to the title when there is no grounded quote", () => {
     render(<SignalCard signal={{ ...signal, pain_quote: null }} />);
 
