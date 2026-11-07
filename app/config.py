@@ -116,6 +116,7 @@ class Settings:
     llm_api_key: str | None = os.getenv("LLM_API_KEY") or None
     llm_model: str | None = os.getenv("LLM_MODEL") or None
     labeling_backend: str = os.getenv("LABELING_BACKEND", "keywords").strip().lower()
+    classification_batch_size: int = _positive_integer_setting("CLASSIFICATION_BATCH_SIZE", 1)
     topic_gate_enabled: bool = _boolean_setting("TOPIC_GATE_ENABLED", True)
     classification_workers: int = _positive_integer_setting("CLASSIFICATION_WORKERS", 8)
     llm_use_json_schema: bool = _boolean_setting("LLM_USE_JSON_SCHEMA", True)

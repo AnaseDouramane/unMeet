@@ -77,6 +77,7 @@ Re-run only clustering, labeling and trends on stored data with `python -m scrip
 | `CLASSIFIER_BACKEND` | `llm` (signals) or `qwen3` (local, binary) |
 | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | any OpenAI-compatible endpoint |
 | `CLASSIFICATION_WORKERS` | concurrent classification requests |
+| `CLASSIFICATION_BATCH_SIZE` | texts per LLM request (default 1); invalid batch entries are retried one by one |
 | `TOPIC_GATE_ENABLED` | embed first; call the LLM only for items near an active topic (default on; no topics = no filtering) |
 | `LABELING_BACKEND` | `llm` problem statements or `keywords` (TF-IDF) |
 | `UNMEET_API_KEY` | required for write endpoints outside development |

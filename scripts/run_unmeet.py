@@ -58,6 +58,7 @@ def build_application(settings: Settings) -> UnmeetApplication:
         problem_detection_service=problem_detection_service,
         classification_workers=getattr(settings, "classification_workers", 1),
         topic_gate=topic_gate,
+        classification_batch_size=getattr(settings, "classification_batch_size", 1),
     )
 
     clusterer = HDBSCANClusterer.for_text_embeddings()
