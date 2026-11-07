@@ -144,6 +144,8 @@ class SourceItemRepository:
             filters.append(SourceItemModel.signal_severity >= query.min_severity)
         if query.published_since is not None:
             filters.append(SourceItemModel.published_at >= query.published_since)
+        if query.processed_since is not None:
+            filters.append(SourceItemModel.processed_at > query.processed_since)
         if query.products:
             # Rows written before none_as_null may hold a JSON null scalar; treat it as [].
             products_array = case(

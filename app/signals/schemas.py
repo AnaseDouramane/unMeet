@@ -23,6 +23,7 @@ class SignalQuery:
     products: tuple[str, ...] = ()
     min_severity: int | None = None
     published_since: datetime | None = None
+    processed_since: datetime | None = None
     query_embedding: Sequence[float] | None = field(default=None, compare=False)
     embedding_model: str | None = None
     max_distance: float = 0.6
@@ -43,8 +44,10 @@ class SignalQuery:
             raise ValueError("offset must be non-negative")
         if (self.query_embedding is None) != (self.embedding_model is None):
             raise ValueError("query_embedding and embedding_model must be given together")
-        if self.published_since is not None and self.published_since.tzinfo is None:
-            raise ValueError("published_since must be timezone-aware")
+        for name in ("published_since", "processed_since"):
+            moment = getattr(self, name)
+            if moment is not None and moment.tzinfo is None:
+                raise ValueError(f"{name} must be timezone-aware")
 
 
 @dataclass(frozen=True)

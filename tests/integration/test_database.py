@@ -207,3 +207,28 @@ def test_product_filter_tolerates_legacy_json_null_rows(
     signals = repository.find_signals(SignalQuery(products=("notion",)))
 
     assert [s.external_id for s in signals] == ["tagged"]
+
+
+def test_find_signals_since_processing_time(session_factory: sessionmaker[Session]) -> None:
+    from sqlalchemy import text
+
+    from app.signals.schemas import SignalQuery
+
+    repository = SourceItemRepository(session_factory)
+    _save_signal(repository, "old", axis=0)
+    _save_signal(repository, "new", axis=0)
+    with session_factory() as session:
+        session.execute(
+            text(
+                "UPDATE source_items SET processed_at = CASE external_id "
+                "WHEN 'old' THEN '2026-11-01T00:00:00Z'::timestamptz "
+                "ELSE '2026-11-07T00:00:00Z'::timestamptz END"
+            )
+        )
+        session.commit()
+
+    signals = repository.find_signals(
+        SignalQuery(processed_since=datetime(2026, 11, 5, tzinfo=UTC))
+    )
+
+    assert [s.external_id for s in signals] == ["new"]
