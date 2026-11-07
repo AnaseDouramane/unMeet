@@ -34,3 +34,19 @@ Turn unMeet into a **pain-signal engine for GTM teams**: users save topics (a co
 2. Intelligence: pluggable LLM classifier with structured output and batching (D7), LLM cluster labels (D4), honest evaluation harness (D8).
 3. Product: tracked topics, signal feed, alerts, CSV/webhook export, Alembic migrations (D9, D11).
 4. SaaS: auth, billing, deployment.
+
+## Status after the revamp
+
+| # | Status | Where |
+|---|--------|-------|
+| D1 | Fixed | `.env` loaded from the working directory (`app/config.py`) |
+| D2 | Fixed | unchanged items skipped (`Pipeline._is_already_classified`) |
+| D3 | Fixed | L2 + UMAP + HDBSCAN (`HDBSCANClusterer.for_text_embeddings`) |
+| D4 | Fixed | LLM problem statements with TF-IDF fallback (`app/clustering/llm_labeling.py`) |
+| D5 | Fixed | concurrent HN fetching, top-level comments |
+| D6 | Fixed | Reddit OAuth `client_credentials` |
+| D7 | Fixed | OpenAI-compatible signal classifier, concurrent batches |
+| D8 | Tooling in place | bootstrap CI + real-data sampling; numbers still need a labeled sample |
+| D9 | Fixed | Alembic migrations, integration tests on Postgres |
+| D10 | Fixed | ruff + mypy clean, CI workflow |
+| D11 | Partly | signals feed, topics, webhooks, CSV, API key; multi-tenant accounts and billing remain |
