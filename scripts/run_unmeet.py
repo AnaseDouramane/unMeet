@@ -17,6 +17,7 @@ from app.config import Settings
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.database.schemas import ClusterRunMetadata
 from app.embeddings.embedding_service import EmbeddingService
+from app.ingestion.base import SourceConnector
 from app.ingestion.factory import build_configured_connectors
 from app.problem_detection.factory import build_problem_classifier
 from app.problem_detection.service import ProblemDetectionService
@@ -37,7 +38,16 @@ class UnmeetApplication:
     fail_fast: bool
 
 
-def build_application(settings: Settings) -> UnmeetApplication:
+@dataclass(frozen=True)
+class IngestionComponents:
+    pipeline: Pipeline
+    connectors: tuple[SourceConnector, ...]
+    embedding_service: EmbeddingService
+    source_item_repository: SourceItemRepository
+
+
+def build_ingestion(settings: Settings) -> IngestionComponents:
+    """Build the ingestion half (connectors, topic gate, classifier, pipeline)."""
     connectors = build_configured_connectors(settings)
     preprocessing_service = PreprocessingService()
     classifier = build_problem_classifier(settings)
@@ -60,6 +70,15 @@ def build_application(settings: Settings) -> UnmeetApplication:
         topic_gate=topic_gate,
         classification_batch_size=getattr(settings, "classification_batch_size", 1),
     )
+    return IngestionComponents(pipeline, connectors, embedding_service, source_item_repository)
+
+
+def build_application(settings: Settings) -> UnmeetApplication:
+    ingestion = build_ingestion(settings)
+    connectors = ingestion.connectors
+    pipeline = ingestion.pipeline
+    embedding_service = ingestion.embedding_service
+    source_item_repository = ingestion.source_item_repository
 
     clusterer = HDBSCANClusterer.for_text_embeddings()
     clustering_service = ClusteringService(source_item_repository, clusterer)

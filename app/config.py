@@ -117,6 +117,9 @@ class Settings:
     llm_model: str | None = os.getenv("LLM_MODEL") or None
     labeling_backend: str = os.getenv("LABELING_BACKEND", "keywords").strip().lower()
     classification_batch_size: int = _positive_integer_setting("CLASSIFICATION_BATCH_SIZE", 1)
+    poll_interval_seconds: int = _positive_integer_setting("POLL_INTERVAL_SECONDS", 600)
+    poll_max_backoff_seconds: int = _positive_integer_setting("POLL_MAX_BACKOFF_SECONDS", 3600)
+    poll_stall_after_seconds: int = _positive_integer_setting("POLL_STALL_AFTER_SECONDS", 10800)
     topic_gate_enabled: bool = _boolean_setting("TOPIC_GATE_ENABLED", True)
     classification_workers: int = _positive_integer_setting("CLASSIFICATION_WORKERS", 8)
     llm_use_json_schema: bool = _boolean_setting("LLM_USE_JSON_SCHEMA", True)
