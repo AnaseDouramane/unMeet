@@ -192,3 +192,78 @@ def test_returns_all_valid_posts_when_fewer_than_limit_are_available(
     items = list(HackerNewsConnector(limit=500).fetch())
 
     assert [item.external_id for item in items] == ["10", "11"]
+
+
+def _comment(comment_id: int, **overrides: object) -> dict[str, object]:
+    item: dict[str, object] = {
+        "id": comment_id,
+        "type": "comment",
+        "by": "bob",
+        "time": 1_700_000_500 + comment_id,
+        "text": f"I keep wasting hours on thing {comment_id}",
+    }
+    item.update(overrides)
+    return item
+
+
+def test_parallel_fetching_preserves_feed_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    story_ids = list(range(1, 41))
+    _install_fake_hackernews(
+        monkeypatch,
+        {"topstories": story_ids},
+        {story_id: _story(story_id) for story_id in story_ids},
+    )
+
+    items = list(HackerNewsConnector(feeds=("topstories",), limit=40, max_workers=8).fetch())
+
+    assert [item.external_id for item in items] == [str(story_id) for story_id in story_ids]
+
+
+def test_comments_follow_their_story_and_do_not_count_towards_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_hackernews(
+        monkeypatch,
+        {"topstories": [1, 2]},
+        {
+            1: _story(1, kids=[101, 102, 103]),
+            2: _story(2),
+            101: _comment(101),
+            102: _comment(102, deleted=True),
+            103: _comment(103, parent=1),
+        },
+    )
+
+    items = list(
+        HackerNewsConnector(feeds=("topstories",), limit=2, include_comments=True).fetch()
+    )
+
+    assert [item.external_id for item in items] == ["1", "101", "103", "2"]
+    comment = items[1]
+    assert comment.title == "Re: Story 1"
+    assert comment.body == "I keep wasting hours on thing 101"
+    assert comment.url == "https://news.ycombinator.com/item?id=101"
+    assert comment.published_at.tzinfo is timezone.utc
+
+
+def test_comments_are_capped_per_story(monkeypatch: pytest.MonkeyPatch) -> None:
+    kids = list(range(100, 110))
+    _install_fake_hackernews(
+        monkeypatch,
+        {"topstories": [1]},
+        {1: _story(1, kids=kids), **{kid: _comment(kid) for kid in kids}},
+    )
+
+    items = list(
+        HackerNewsConnector(
+            feeds=("topstories",), limit=1, include_comments=True, max_comments_per_story=3
+        ).fetch()
+    )
+
+    assert [item.external_id for item in items] == ["1", "100", "101", "102"]
+
+
+@pytest.mark.parametrize("field", ["max_workers", "max_comments_per_story"])
+def test_non_positive_concurrency_settings_are_rejected(field: str) -> None:
+    with pytest.raises(ValueError, match=field):
+        HackerNewsConnector(**{field: 0})

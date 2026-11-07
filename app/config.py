@@ -61,6 +61,13 @@ def _positive_integer_setting(name: str, default: int) -> int:
     return value
 
 
+def _boolean_setting(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _ingestion_fail_fast() -> bool:
     return os.getenv("INGESTION_FAIL_FAST", "true").strip().lower() in {"1", "true", "yes"}
 
@@ -92,6 +99,11 @@ class Settings:
     reddit_sort: str = os.getenv("REDDIT_SORT", "new")
     hackernews_feeds: tuple[str, ...] = _hackernews_feeds()
     hackernews_limit: int = _positive_integer_setting("HACKERNEWS_LIMIT", 500)
+    hackernews_max_workers: int = _positive_integer_setting("HACKERNEWS_MAX_WORKERS", 16)
+    hackernews_include_comments: bool = _boolean_setting("HACKERNEWS_INCLUDE_COMMENTS", True)
+    hackernews_max_comments_per_story: int = _positive_integer_setting(
+        "HACKERNEWS_MAX_COMMENTS_PER_STORY", 20
+    )
     enabled_sources: tuple[str, ...] = _enabled_sources()
     ingestion_fail_fast: bool = _ingestion_fail_fast()
     github_token: str | None = os.getenv("GITHUB_TOKEN")

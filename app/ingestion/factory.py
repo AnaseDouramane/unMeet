@@ -18,6 +18,11 @@ def build_configured_connectors(settings: Settings) -> tuple[SourceConnector, ..
                 HackerNewsConnector(
                     feeds=settings.hackernews_feeds,
                     limit=settings.hackernews_limit,
+                    max_workers=getattr(settings, "hackernews_max_workers", 1),
+                    include_comments=getattr(settings, "hackernews_include_comments", False),
+                    max_comments_per_story=getattr(
+                        settings, "hackernews_max_comments_per_story", 20
+                    ),
                 )
             )
         elif source == "reddit":
