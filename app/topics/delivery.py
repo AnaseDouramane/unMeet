@@ -149,6 +149,7 @@ def webhook_payload(topic: Topic, signals: Sequence[Signal]) -> dict[str, Any]:
                 "severity": signal.severity,
                 "confidence": signal.confidence,
                 "similarity": signal.similarity,
+                "relevance_reason": signal.relevance_reason,
             }
             for signal in signals
         ],

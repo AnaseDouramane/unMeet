@@ -88,6 +88,8 @@ def test_delivers_in_batches_and_moves_the_watermark_to_run_start() -> None:
     first = session.posts[0]["json"]
     assert first["topic"] == {"id": 1, "name": "Outbound tooling"}
     assert first["signals"][0]["pain_quote"] == "looking for a tool 1"
+    assert first["signals"][0]["relevance_reason"] is None
+    assert reader.calls[0][0].topic_id == 1
     query, description = reader.calls[0]
     assert description == "people shopping for outbound tools"
     assert query.processed_since == NOW - timedelta(days=7)

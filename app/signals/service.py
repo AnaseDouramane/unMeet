@@ -63,6 +63,7 @@ CSV_COLUMNS = (
     "author",
     "confidence",
     "similarity",
+    "relevance_reason",
 )
 
 
@@ -85,6 +86,7 @@ def signals_to_csv(signals: Iterable[Signal]) -> str:
                 _safe_cell(signal.author or ""),
                 f"{signal.confidence:.2f}",
                 "" if signal.similarity is None else f"{signal.similarity:.3f}",
+                _safe_cell(signal.relevance_reason or ""),
             )
         )
     return buffer.getvalue()

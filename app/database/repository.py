@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-from sqlalchemy import ColumnElement, case, exists, func, literal, select
+from sqlalchemy import ColumnElement, case, delete, exists, func, literal, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
@@ -16,7 +16,9 @@ from app.database.models import (
     ClusterModel,
     ClusterRunModel,
     ClusterTrendModel,
+    SignalTopicMatchModel,
     SourceItemModel,
+    TrackedTopicModel,
     cluster_source_items,
 )
 from app.database.schemas import (
@@ -174,7 +176,19 @@ class SourceItemRepository:
             filters.append(distance <= query.max_distance)
 
         columns = [SourceItemModel] + ([distance.label("distance")] if distance is not None else [])
-        statement = select(*columns).where(*filters)
+        columns.append(
+            SignalTopicMatchModel.reason.label("relevance_reason")
+            if query.topic_id is not None
+            else literal(None).label("relevance_reason")
+        )
+        statement = select(*columns).select_from(SourceItemModel)
+        if query.topic_id is not None:
+            statement = statement.outerjoin(
+                SignalTopicMatchModel,
+                (SignalTopicMatchModel.source_item_id == SourceItemModel.id)
+                & (SignalTopicMatchModel.topic_id == query.topic_id),
+            )
+        statement = statement.where(*filters)
         if distance is not None:
             statement = statement.order_by(distance, SourceItemModel.id)
         else:
@@ -187,14 +201,20 @@ class SourceItemRepository:
         try:
             rows = session.execute(statement).all()
             return tuple(
-                self._to_signal(row[0], None if distance is None else float(row[1]))
+                self._to_signal(
+                    row[0],
+                    None if distance is None else float(row[1]),
+                    row._mapping["relevance_reason"],
+                )
                 for row in rows
             )
         finally:
             self._close_session(session)
 
     @staticmethod
-    def _to_signal(model: SourceItemModel, distance: float | None) -> Signal:
+    def _to_signal(
+        model: SourceItemModel, distance: float | None, relevance_reason: str | None = None
+    ) -> Signal:
         return Signal(
             id=model.id,
             source=model.source,
@@ -209,6 +229,7 @@ class SourceItemRepository:
             severity=model.signal_severity,
             confidence=float(model.problem_confidence or 0.0),
             similarity=None if distance is None else round(1.0 - distance, 4),
+            relevance_reason=relevance_reason,
         )
 
     def count_problems_by_source(self) -> tuple[tuple[str, int], ...]:
@@ -346,6 +367,11 @@ class SourceItemRepository:
 
             if existing is None:
                 session.add(model)
+            if normalized_problem_result is not None and (
+                existing is not None or normalized_problem_result.topic_matches
+            ):
+                session.flush()
+                self._replace_topic_matches(session, model.id, normalized_problem_result)
             session.commit()
             session.refresh(model)
             return self._to_persisted_source_item(model)
@@ -354,6 +380,35 @@ class SourceItemRepository:
             raise
         finally:
             self._close_session(session)
+
+    @staticmethod
+    def _replace_topic_matches(
+        session: Session, source_item_id: int, result: ProblemDetectionResult
+    ) -> None:
+        """Store the item's topic matches, replacing those of a previous classification.
+
+        Matches for topics deleted in the meantime are skipped instead of failing the save.
+        """
+        session.execute(
+            delete(SignalTopicMatchModel).where(
+                SignalTopicMatchModel.source_item_id == source_item_id
+            )
+        )
+        if not result.topic_matches:
+            return
+        wanted = {match.topic_id for match in result.topic_matches}
+        existing_ids = set(
+            session.scalars(select(TrackedTopicModel.id).where(TrackedTopicModel.id.in_(wanted)))
+        )
+        for match in result.topic_matches:
+            if match.topic_id in existing_ids:
+                session.add(
+                    SignalTopicMatchModel(
+                        source_item_id=source_item_id,
+                        topic_id=match.topic_id,
+                        reason=match.reason,
+                    )
+                )
 
     @staticmethod
     def _to_persisted_source_item(model: SourceItemModel) -> PersistedSourceItem:

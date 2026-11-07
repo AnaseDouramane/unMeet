@@ -139,3 +139,26 @@ def test_reader_turns_topic_text_into_a_semantic_filter() -> None:
     assert repository.queries[0].embedding_model == "mini"
     assert repository.queries[0].query_embedding == [0.1] * 384
     assert repository.queries[1].query_embedding is None
+
+
+def test_relevance_reason_is_exposed_in_json_and_csv() -> None:
+    reader = RecordingReader([_signal(relevance_reason="Cleans duplicate contacts by hand.")])
+    client = _client(reader)
+
+    item = client.get("/api/v1/signals").json()["items"][0]
+    row = next(csv.DictReader(io.StringIO(client.get("/api/v1/signals.csv").text)))
+
+    assert item["relevance_reason"] == "Cleans duplicate contacts by hand."
+    assert row["relevance_reason"] == "Cleans duplicate contacts by hand."
+
+
+def test_relevance_reason_is_empty_without_a_topic_match() -> None:
+    client = _client(RecordingReader())
+    assert client.get("/api/v1/signals").json()["items"][0]["relevance_reason"] is None
+    row = next(csv.DictReader(io.StringIO(client.get("/api/v1/signals.csv").text)))
+    assert row["relevance_reason"] == ""
+
+
+def test_csv_neutralises_formula_in_relevance_reason() -> None:
+    text = signals_to_csv([_signal(relevance_reason="=SUM(A1)")])
+    assert next(csv.DictReader(io.StringIO(text)))["relevance_reason"].startswith("'=")

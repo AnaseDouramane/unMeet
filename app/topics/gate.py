@@ -6,6 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from app.problem_detection.schemas import TopicContext
 from app.topics.schemas import Topic
 
 logger = logging.getLogger(__name__)
@@ -89,6 +90,15 @@ class TopicGate:
             for topic in topics
         }
         logger.info("Topic gate loaded %d active topics", len(topics))
+
+    def topic_contexts(self, topic_ids: Sequence[int]) -> tuple[TopicContext, ...]:
+        """Describe the given active topics for the classifier prompt."""
+        wanted = set(topic_ids)
+        return tuple(
+            TopicContext(topic.id, topic.name, topic.description)
+            for topic in self._topics
+            if topic.id in wanted
+        )
 
     def evaluate(self, document_text: str) -> GateDecision:
         embedding = self._embedding_service.encode(document_text)

@@ -11,6 +11,8 @@ from app.problem_detection.schemas import (
     MalformedClassifierOutputError,
     ProblemClassifier,
     ProblemDetectionResult,
+    TopicContext,
+    TopicMatch,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,20 +29,22 @@ class ProblemDetectionService:
         return result
 
     def detect_with_status(
-        self, prepared_document: PreparedDocument
+        self, prepared_document: PreparedDocument, topics: Sequence[TopicContext] = ()
     ) -> tuple[ProblemDetectionResult, bool]:
         """Classify a document and report whether the output was malformed.
 
         Unlike :meth:`detect` this keeps no per-call state, so it is safe to call from
-        several threads at once.
+        several threads at once. ``topics`` are candidate topics for classifiers that support
+        topic matching; other classifiers ignore them.
         """
         document_text = prepared_document.document_text
         self._validate_document_text(document_text)
         try:
-            return (
-                validate_problem_detection_result(self._classifier.classify(document_text)),
-                False,
-            )
+            if topics and self.supports_topic_matching:
+                raw = self._classifier.classify(document_text, topics)  # type: ignore[call-arg]
+            else:
+                raw = self._classifier.classify(document_text)
+            return validate_problem_detection_result(raw), False
         except MalformedClassifierOutputError:
             source_item = prepared_document.source_item
             logger.warning(
@@ -59,6 +63,10 @@ class ProblemDetectionService:
             )
 
     @property
+    def supports_topic_matching(self) -> bool:
+        return bool(getattr(self._classifier, "supports_topic_matching", False))
+
+    @property
     def supports_batching(self) -> bool:
         return callable(getattr(self._classifier, "classify_batch", None))
 
@@ -69,7 +77,9 @@ class ProblemDetectionService:
         return count if isinstance(count, int) else None
 
     def detect_batch_with_status(
-        self, prepared_documents: Sequence[PreparedDocument]
+        self,
+        prepared_documents: Sequence[PreparedDocument],
+        topics_per_document: Sequence[Sequence[TopicContext]] | None = None,
     ) -> list[tuple[ProblemDetectionResult, bool]]:
         """Classify several documents with one request where the classifier supports it.
 
@@ -78,23 +88,33 @@ class ProblemDetectionService:
         support this is a plain loop over :meth:`detect_with_status`. Thread-safe.
         """
         documents = list(prepared_documents)
+        topic_lists = [tuple(topics) for topics in (topics_per_document or [()] * len(documents))]
+        if len(topic_lists) != len(documents):
+            raise ValueError("topics_per_document must have one entry per document")
         batch_classify = getattr(self._classifier, "classify_batch", None)
         if not callable(batch_classify) or len(documents) <= 1:
-            return [self.detect_with_status(document) for document in documents]
+            return [
+                self.detect_with_status(document, topics)
+                for document, topics in zip(documents, topic_lists, strict=True)
+            ]
         for document in documents:
             self._validate_document_text(document.document_text)
-        outcomes = batch_classify([document.document_text for document in documents])
+        texts = [document.document_text for document in documents]
+        if any(topic_lists) and self.supports_topic_matching:
+            outcomes = batch_classify(texts, topic_lists)
+        else:
+            outcomes = batch_classify(texts)
         if len(outcomes) != len(documents):
             outcomes = [MalformedClassifierOutputError("batch size mismatch")] * len(documents)
         results: list[tuple[ProblemDetectionResult, bool]] = []
-        for document, outcome in zip(documents, outcomes, strict=True):
+        for document, topics, outcome in zip(documents, topic_lists, outcomes, strict=True):
             if isinstance(outcome, MalformedClassifierOutputError):
-                results.append(self.detect_with_status(document))
+                results.append(self.detect_with_status(document, topics))
                 continue
             try:
                 results.append((validate_problem_detection_result(outcome), False))
             except (TypeError, ValueError):
-                results.append(self.detect_with_status(document))
+                results.append(self.detect_with_status(document, topics))
         return results
 
     def _classifier_name(self) -> str:
@@ -134,8 +154,7 @@ def validate_problem_detection_result(result: ProblemDetectionResult) -> Problem
     ):
         raise ValueError("pain_quote must be a non-empty string when present")
     if not isinstance(result.products_mentioned, tuple) or any(
-        not isinstance(product, str) or not product.strip()
-        for product in result.products_mentioned
+        not isinstance(product, str) or not product.strip() for product in result.products_mentioned
     ):
         raise ValueError("products_mentioned must be a tuple of non-empty strings")
     if result.severity is not None and (
@@ -144,4 +163,13 @@ def validate_problem_detection_result(result: ProblemDetectionResult) -> Problem
         or not 1 <= result.severity <= 3
     ):
         raise ValueError("severity must be an integer between 1 and 3")
+    if not isinstance(result.topic_matches, tuple) or any(
+        not isinstance(match, TopicMatch)
+        or isinstance(match.topic_id, bool)
+        or not isinstance(match.topic_id, int)
+        or not isinstance(match.reason, str)
+        or not match.reason.strip()
+        for match in result.topic_matches
+    ):
+        raise ValueError("topic_matches must be a tuple of TopicMatch with non-empty reasons")
     return result

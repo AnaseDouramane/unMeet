@@ -37,6 +37,8 @@ from app.problem_detection.schemas import (
     MalformedClassifierOutputError,
     ProblemDetectionResult,
     SignalIntent,
+    TopicContext,
+    TopicMatch,
 )
 
 SYSTEM_PROMPT = """You analyse public posts and comments for go-to-market teams.
@@ -119,7 +121,26 @@ BATCH_JSON_SCHEMA: dict[str, Any] = {
     },
 }
 
+TOPIC_PROMPT = """
+Some texts list tracked topics under "Candidate topics". For every candidate topic the text is
+genuinely relevant to (the author describes that problem, asks for that kind of tool, or
+criticises that product), add an entry to topic_matches with the topic's "topic_id" and a
+"reason": one sentence, at most 160 characters, saying what the author says that matches the
+topic. Do not add a topic that only shares a keyword. Use [] when no candidate topic fits or
+none is listed."""
+
+TOPIC_MATCH_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["topic_id", "reason"],
+        "properties": {"topic_id": {"type": "integer"}, "reason": {"type": "string"}},
+    },
+}
+
 _MAX_QUOTE_LENGTH = 200
+_MAX_REASON_LENGTH = 200
 _MAX_PRODUCTS = 10
 
 
@@ -127,6 +148,8 @@ LLMClassifierError = LLMRequestError
 
 
 class OpenAICompatibleSignalClassifier:
+    supports_topic_matching = True
+
     def __init__(
         self,
         model: str,
@@ -163,32 +186,39 @@ class OpenAICompatibleSignalClassifier:
     def classifier_name(self) -> str:
         return f"OpenAICompatibleSignalClassifier:{self.model}"
 
-    def classify(self, document_text: str) -> ProblemDetectionResult:
+    def classify(
+        self, document_text: str, topics: Sequence[TopicContext] = ()
+    ) -> ProblemDetectionResult:
         if not isinstance(document_text, str):
             raise TypeError("document_text must be a string")
         if not document_text.strip():
             raise ValueError("document_text must not be empty")
 
         text = document_text[: self.max_document_chars]
+        topic_block = _topic_block(topics)
         try:
             content = self._client.complete(
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Text:\n{text}"},
+                    {"role": "system", "content": SYSTEM_PROMPT + (TOPIC_PROMPT if topics else "")},
+                    {"role": "user", "content": f"Text:\n{text}{topic_block}"},
                 ],
-                response_format=self._response_format(),
+                response_format=self._response_format(
+                    _with_topic_matches(SIGNAL_JSON_SCHEMA) if topics else None
+                ),
             )
             payload = parse_json_object(content)
         except LLMResponseError as error:
             raise MalformedClassifierOutputError(str(error)) from error
-        return self._to_result(payload, text)
+        return self._to_result(payload, text, _topic_ids(topics))
 
     @property
     def request_count(self) -> int:
         return self._client.request_count
 
     def classify_batch(
-        self, document_texts: Sequence[str]
+        self,
+        document_texts: Sequence[str],
+        topics_per_text: Sequence[Sequence[TopicContext]] | None = None,
     ) -> list[ProblemDetectionResult | MalformedClassifierOutputError]:
         """Classify several documents in one request.
 
@@ -205,15 +235,28 @@ class OpenAICompatibleSignalClassifier:
                 raise TypeError("document_text must be a string")
             if not text.strip():
                 raise ValueError("document_text must not be empty")
+        topic_lists = [tuple(topics) for topics in (topics_per_text or [()] * len(texts))]
+        if len(topic_lists) != len(texts):
+            raise ValueError("topics_per_text must have one entry per text")
+        with_topics = any(topic_lists)
         truncated = [text[: self.batch_max_document_chars] for text in texts]
-        prompt = "\n\n".join(f"### Text {i}\n{text}" for i, text in enumerate(truncated))
+        prompt = "\n\n".join(
+            f"### Text {i}\n{text}{_topic_block(topic_lists[i])}"
+            for i, text in enumerate(truncated)
+        )
         try:
             content = self._client.complete(
                 messages=[
-                    {"role": "system", "content": BATCH_SYSTEM_PROMPT},
+                    {
+                        "role": "system",
+                        "content": BATCH_SYSTEM_PROMPT + (TOPIC_PROMPT if with_topics else ""),
+                    },
                     {"role": "user", "content": prompt},
                 ],
-                response_format=self._response_format(BATCH_JSON_SCHEMA, "signal_batch"),
+                response_format=self._response_format(
+                    _batch_schema_with_topics() if with_topics else BATCH_JSON_SCHEMA,
+                    "signal_batch",
+                ),
             )
             payload = parse_json_object(content)
         except LLMResponseError as error:
@@ -233,7 +276,7 @@ class OpenAICompatibleSignalClassifier:
                 results.append(MalformedClassifierOutputError(f"no result for text {index}"))
                 continue
             try:
-                results.append(self._to_result(entry, text))
+                results.append(self._to_result(entry, text, _topic_ids(topic_lists[index])))
             except MalformedClassifierOutputError as error:
                 results.append(error)
         return results
@@ -248,7 +291,12 @@ class OpenAICompatibleSignalClassifier:
             }
         return {"type": "json_object"}
 
-    def _to_result(self, payload: dict[str, Any], text: str) -> ProblemDetectionResult:
+    def _to_result(
+        self,
+        payload: dict[str, Any],
+        text: str,
+        allowed_topic_ids: frozenset[int] = frozenset(),
+    ) -> ProblemDetectionResult:
         is_problem = payload.get("is_problem")
         if not isinstance(is_problem, bool):
             raise MalformedClassifierOutputError("is_problem must be a boolean")
@@ -286,6 +334,7 @@ class OpenAICompatibleSignalClassifier:
             pain_quote=_grounded_quote(payload.get("pain_quote"), text),
             products_mentioned=_products(payload.get("products_mentioned")),
             severity=_severity(payload.get("severity")),
+            topic_matches=_topic_matches(payload.get("topic_matches"), allowed_topic_ids),
         )
 
 
@@ -331,3 +380,60 @@ def _severity(value: Any) -> int | None:
         return None
     severity = round(float(value))
     return severity if 1 <= severity <= 3 else None
+
+
+def _topic_ids(topics: Sequence[TopicContext]) -> frozenset[int]:
+    return frozenset(topic.id for topic in topics)
+
+
+def _topic_block(topics: Sequence[TopicContext]) -> str:
+    if not topics:
+        return ""
+    lines = [
+        f"- topic_id {topic.id}: {topic.name}"
+        + (f" — {topic.description}" if topic.description else "")
+        for topic in topics
+    ]
+    return "\nCandidate topics:\n" + "\n".join(lines)
+
+
+def _with_topic_matches(schema: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **schema,
+        "required": [*schema["required"], "topic_matches"],
+        "properties": {**schema["properties"], "topic_matches": TOPIC_MATCH_SCHEMA},
+    }
+
+
+def _batch_schema_with_topics() -> dict[str, Any]:
+    item = _with_topic_matches(BATCH_JSON_SCHEMA["properties"]["results"]["items"])
+    return {
+        **BATCH_JSON_SCHEMA,
+        "properties": {"results": {"type": "array", "items": item}},
+    }
+
+
+def _topic_matches(value: Any, allowed_ids: frozenset[int]) -> tuple[TopicMatch, ...]:
+    """Keep only well-formed matches for topics that were actually offered.
+
+    The model may invent topic ids or return empty reasons; those entries are dropped rather
+    than failing the whole classification, because the signal itself is still valid.
+    """
+    if not isinstance(value, list) or not allowed_ids:
+        return ()
+    matches: dict[int, TopicMatch] = {}
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        topic_id, reason = entry.get("topic_id"), entry.get("reason")
+        if (
+            isinstance(topic_id, bool)
+            or not isinstance(topic_id, int)
+            or topic_id not in allowed_ids
+            or not isinstance(reason, str)
+        ):
+            continue
+        reason = _normalise_whitespace(reason)
+        if reason and topic_id not in matches:
+            matches[topic_id] = TopicMatch(topic_id, reason[:_MAX_REASON_LENGTH])
+    return tuple(matches.values())

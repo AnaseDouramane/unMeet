@@ -13,7 +13,8 @@ MAX_SIGNAL_LIMIT = 500
 class SignalQuery:
     """Filters for the signal feed. Empty filters mean "no restriction".
 
-    ``query_embedding`` restricts results to items within ``max_distance`` (cosine distance,
+    ``topic_id`` annotates each signal with the reason the model gave for matching that tracked
+    topic (it does not filter). ``query_embedding`` restricts results to items within ``max_distance`` (cosine distance,
     0 = identical, 2 = opposite) of a topic description and orders them by similarity;
     otherwise the newest items come first.
     """
@@ -29,6 +30,7 @@ class SignalQuery:
     max_distance: float = 0.6
     limit: int = 50
     offset: int = 0
+    topic_id: int | None = None
 
     def __post_init__(self) -> None:
         unknown = set(self.intents) - SIGNAL_INTENTS
@@ -65,3 +67,4 @@ class Signal:
     severity: int | None
     confidence: float
     similarity: float | None = None
+    relevance_reason: str | None = None

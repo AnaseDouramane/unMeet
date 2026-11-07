@@ -18,6 +18,23 @@ class MalformedClassifierOutputError(ValueError):
 
 
 @dataclass(frozen=True)
+class TopicContext:
+    """A tracked topic offered to the classifier as a candidate match."""
+
+    id: int
+    name: str
+    description: str | None = None
+
+
+@dataclass(frozen=True)
+class TopicMatch:
+    """Why a document is relevant to one tracked topic, in the model's words."""
+
+    topic_id: int
+    reason: str
+
+
+@dataclass(frozen=True)
 class ProblemDetectionResult:
     """Classification of one document.
 
@@ -28,7 +45,9 @@ class ProblemDetectionResult:
       solution, criticising a named product);
     - ``pain_quote``: the shortest verbatim excerpt of the document that states the pain;
     - ``products_mentioned``: product or company names the author mentions;
-    - ``severity``: 1 (minor annoyance) to 3 (blocking or costly).
+    - ``severity``: 1 (minor annoyance) to 3 (blocking or costly);
+    - ``topic_matches``: for each candidate topic the document genuinely relates to, the reason
+      why. Empty when no topics were offered or none matched.
     """
 
     is_problem: bool
@@ -39,6 +58,7 @@ class ProblemDetectionResult:
     pain_quote: str | None = None
     products_mentioned: tuple[str, ...] = field(default_factory=tuple)
     severity: int | None = None
+    topic_matches: tuple[TopicMatch, ...] = field(default_factory=tuple)
 
 
 class ProblemClassifier(Protocol):
