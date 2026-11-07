@@ -298,6 +298,10 @@ class SourceItemRepository:
             published_at=model.published_at,
             processed_at=model.processed_at,
             engagement_score=model.engagement_score,
+            signal_intent=model.signal_intent,
+            pain_quote=model.pain_quote,
+            products_mentioned=tuple(model.products_mentioned or ()),
+            signal_severity=model.signal_severity,
         )
 
     @staticmethod
@@ -348,6 +352,10 @@ class SourceItemRepository:
         model.problem_reason = result.reason
         model.problem_classifier = result.classifier_name
         model.classified_at = datetime.now(UTC)
+        model.signal_intent = result.intent
+        model.pain_quote = result.pain_quote
+        model.products_mentioned = list(result.products_mentioned) or None
+        model.signal_severity = result.severity
         if not result.is_problem:
             model.embedding = None
             model.embedding_model = None

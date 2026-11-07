@@ -6,6 +6,7 @@ from numbers import Real
 
 from app.preprocessing.schemas import PreparedDocument
 from app.problem_detection.schemas import (
+    SIGNAL_INTENTS,
     MalformedClassifierOutputError,
     ProblemClassifier,
     ProblemDetectionResult,
@@ -70,4 +71,21 @@ def validate_problem_detection_result(result: ProblemDetectionResult) -> Problem
         raise ValueError("reason must not be empty")
     if not isinstance(result.classifier_name, str) or not result.classifier_name.strip():
         raise ValueError("classifier_name must not be empty")
+    if result.intent is not None and result.intent not in SIGNAL_INTENTS:
+        raise ValueError(f"intent must be one of {sorted(SIGNAL_INTENTS)}")
+    if result.pain_quote is not None and (
+        not isinstance(result.pain_quote, str) or not result.pain_quote.strip()
+    ):
+        raise ValueError("pain_quote must be a non-empty string when present")
+    if not isinstance(result.products_mentioned, tuple) or any(
+        not isinstance(product, str) or not product.strip()
+        for product in result.products_mentioned
+    ):
+        raise ValueError("products_mentioned must be a tuple of non-empty strings")
+    if result.severity is not None and (
+        isinstance(result.severity, bool)
+        or not isinstance(result.severity, int)
+        or not 1 <= result.severity <= 3
+    ):
+        raise ValueError("severity must be an integer between 1 and 3")
     return result

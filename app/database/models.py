@@ -59,6 +59,10 @@ class SourceItemModel(Base):
             name="ck_source_items_problem_confidence_range",
         ),
         CheckConstraint(
+            "signal_severity IS NULL OR signal_severity BETWEEN 1 AND 3",
+            name="ck_source_items_signal_severity_range",
+        ),
+        CheckConstraint(
             "embedding IS NULL OR is_problem IS TRUE",
             name="ck_source_items_embedding_requires_problem",
         ),
@@ -83,6 +87,10 @@ class SourceItemModel(Base):
     problem_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     problem_classifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
     classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signal_intent: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    pain_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    products_mentioned: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    signal_severity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
     dedup_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

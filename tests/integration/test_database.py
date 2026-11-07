@@ -82,3 +82,25 @@ def test_find_similar_orders_by_cosine_distance_within_one_model(
     results = repository.find_similar(_unit(0), MODEL, limit=5)
 
     assert [result.external_id for result in results] == ["near", "far"]
+
+
+def test_signal_fields_are_persisted(session_factory: sessionmaker[Session]) -> None:
+    repository = SourceItemRepository(session_factory)
+    item = _item("signal", "HubSpot sequences keep landing in spam")
+    result = ProblemDetectionResult(
+        is_problem=True,
+        confidence=0.95,
+        reason="complaint about a named tool",
+        classifier_name="test-classifier",
+        intent="competitor_complaint",
+        pain_quote="keep landing in spam",
+        products_mentioned=("HubSpot",),
+        severity=3,
+    )
+
+    saved = repository.save(item, PreprocessingService().prepare(item), _unit(2), MODEL, result)
+
+    assert saved.signal_intent == "competitor_complaint"
+    assert saved.pain_quote == "keep landing in spam"
+    assert saved.products_mentioned == ("HubSpot",)
+    assert saved.signal_severity == 3
