@@ -1,5 +1,6 @@
 import sys
 from types import SimpleNamespace
+from typing import ClassVar
 
 import numpy as np
 import pytest
@@ -8,7 +9,7 @@ from app.clustering.hdbscan_clusterer import HDBSCANClusterer
 
 
 class FakeHDBSCAN:
-    instances: list["FakeHDBSCAN"] = []
+    instances: ClassVar[list["FakeHDBSCAN"]] = []
 
     def __init__(self, **kwargs) -> None:
         self.kwargs = kwargs

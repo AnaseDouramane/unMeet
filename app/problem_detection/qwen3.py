@@ -76,7 +76,6 @@ class Qwen3ProblemClassifier:
     def _load_components(self) -> tuple[Any, Any]:
         if self._tokenizer is None or self._model is None:
             import torch
-
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
             device = self.device_name

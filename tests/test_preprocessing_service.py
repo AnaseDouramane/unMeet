@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.ingestion.schemas import SourceItem
 from app.preprocessing.cleaner import clean_text
@@ -15,7 +15,7 @@ def test_preprocessing_service_prepares_document_without_mutating_source_item() 
         body="<p>Body <i>content</i></p>",
         url="https://example.com/article",
         author="alice",
-        published_at=datetime.fromtimestamp(1_700_000_000, tz=timezone.utc),
+        published_at=datetime.fromtimestamp(1_700_000_000, tz=UTC),
         engagement_score=42,
         raw_payload={"id": 123, "type": "story"},
     )

@@ -17,7 +17,7 @@ class IngestionOnlyResult:
     new_count: int
     existing_count: int
     error_count: int
-    source_stats: tuple["IngestionOnlySourceResult", ...]
+    source_stats: tuple[IngestionOnlySourceResult, ...]
 
 
 @dataclass(frozen=True)

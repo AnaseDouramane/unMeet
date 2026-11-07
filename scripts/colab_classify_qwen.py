@@ -11,8 +11,8 @@ import sys
 from pathlib import Path
 from time import perf_counter
 
-from app.problem_detection.qwen3 import Qwen3ProblemClassifier
 from app.problem_detection.classification_jsonl import parse_classification_json_line
+from app.problem_detection.qwen3 import Qwen3ProblemClassifier
 from app.problem_detection.schemas import MalformedClassifierOutputError
 
 

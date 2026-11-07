@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import requests
@@ -82,7 +82,7 @@ def test_hackernews_connector_returns_raw_source_item_with_utc_timestamp(
     assert item.source == "hackernews"
     assert item.title == "Hello <b>HN</b>"
     assert item.body == "<p>Body <i>content</i></p>"
-    assert item.published_at == datetime.fromtimestamp(1_700_000_123, tz=timezone.utc)
+    assert item.published_at == datetime.fromtimestamp(1_700_000_123, tz=UTC)
     assert item.raw_payload["id"] == 123
 
 
@@ -243,7 +243,7 @@ def test_comments_follow_their_story_and_do_not_count_towards_limit(
     assert comment.title == "Re: Story 1"
     assert comment.body == "I keep wasting hours on thing 101"
     assert comment.url == "https://news.ycombinator.com/item?id=101"
-    assert comment.published_at.tzinfo is timezone.utc
+    assert comment.published_at.tzinfo is UTC
 
 
 def test_comments_are_capped_per_story(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import requests
@@ -46,8 +46,8 @@ def test_reddit_connector_maps_a_post_to_source_item() -> None:
     assert item.body == "I manually combine reports every week."
     assert item.url == "https://reddit.example/abc"
     assert item.author == "alice"
-    assert item.published_at == datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
-    assert item.published_at.tzinfo is timezone.utc
+    assert item.published_at == datetime.fromtimestamp(1_700_000_000, tz=UTC)
+    assert item.published_at.tzinfo is UTC
     assert item.engagement_score == 42
     assert item.raw_payload["id"] == "abc"
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import timezone
+from datetime import UTC
 from pathlib import Path
 
 import pytest
@@ -163,7 +163,7 @@ def test_import_updates_only_unclassified_records_without_embeddings() -> None:
     assert unclassified.problem_reason == "Repeated manual work"
     assert unclassified.problem_classifier == "qwen-colab"
     assert unclassified.classified_at is not None
-    assert unclassified.classified_at.tzinfo == timezone.utc
+    assert unclassified.classified_at.tzinfo == UTC
     assert unclassified.embedding is None
     assert unclassified.embedding_model is None
     assert already_classified.is_problem is True

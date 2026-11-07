@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.analysis.orchestrator import AnalysisRunResult
@@ -36,7 +36,7 @@ class FakeAnalysisOrchestrator:
             raise self.error
         return AnalysisRunResult(
             run_id=17,
-            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
             cluster_count=3,
             document_count=4,
             clusters=(),

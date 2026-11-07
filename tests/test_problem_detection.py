@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -43,7 +43,7 @@ def _prepared_document(
         body="Body",
         url="https://example.com/1",
         author=None,
-        published_at=datetime.now(timezone.utc),
+        published_at=datetime.now(UTC),
         engagement_score=None,
         raw_payload={},
     )

@@ -1,5 +1,5 @@
 import inspect
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -122,7 +122,7 @@ def _source_item(index: int) -> SourceItem:
         body=f"<p>Body {index}</p>",
         url=f"https://example.com/{index}",
         author="alice",
-        published_at=datetime.fromtimestamp(1_700_000_000 + index, tz=timezone.utc),
+        published_at=datetime.fromtimestamp(1_700_000_000 + index, tz=UTC),
         engagement_score=index,
         raw_payload={"id": index, "type": "story"},
     )

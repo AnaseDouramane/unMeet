@@ -8,9 +8,9 @@ from app.problem_detection.service import ProblemDetectionService
 
 __all__ = [
     "DEFAULT_QWEN3_MODEL",
+    "MalformedClassifierOutputError",
     "ProblemClassifier",
     "ProblemDetectionResult",
-    "MalformedClassifierOutputError",
     "ProblemDetectionService",
     "Qwen3ProblemClassifier",
 ]

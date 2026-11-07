@@ -3,8 +3,8 @@ from dataclasses import dataclass
 from app.config import Settings
 from app.database.repository import SourceItemRepository
 from app.embeddings.embedding_service import EmbeddingService
-from app.ingestion.hackernews import HackerNewsConnector
 from app.ingestion.base import SourceConnector
+from app.ingestion.hackernews import HackerNewsConnector
 from app.ingestion.schemas import SourceItem
 from app.preprocessing.schemas import PreparedDocument
 from app.problem_detection.service import ProblemDetectionService

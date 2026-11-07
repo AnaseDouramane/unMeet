@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.clustering.schemas import ClusterTrend, ClusterableDocument
+from app.clustering.schemas import ClusterableDocument, ClusterTrend
 from app.database.models import (
     ClusterModel,
     ClusterRunModel,
@@ -32,6 +32,10 @@ from app.ingestion.schemas import SourceItem
 from app.preprocessing.schemas import PreparedDocument
 from app.problem_detection.schemas import ProblemDetectionResult
 from app.problem_detection.service import validate_problem_detection_result
+
+if TYPE_CHECKING:
+    from app.clustering.service import DocumentCluster
+    from app.clustering.topic_labeling import TopicLabel
 
 
 class SourceItemRepository:
@@ -160,7 +164,7 @@ class SourceItemRepository:
             model = SourceItemModel()
             self._apply_source_item(model, source_item)
             self._apply_prepared_document(model, prepared_document)
-            model.processed_at = datetime.now(timezone.utc)
+            model.processed_at = datetime.now(UTC)
             session.add(model)
             session.commit()
             return True
@@ -252,7 +256,7 @@ class SourceItemRepository:
             if normalized_embedding is not None:
                 model.embedding = normalized_embedding
                 model.embedding_model = normalized_embedding_model
-            model.processed_at = datetime.now(timezone.utc)
+            model.processed_at = datetime.now(UTC)
 
             if existing is None:
                 session.add(model)
@@ -343,7 +347,7 @@ class SourceItemRepository:
         model.problem_confidence = float(result.confidence)
         model.problem_reason = result.reason
         model.problem_classifier = result.classifier_name
-        model.classified_at = datetime.now(timezone.utc)
+        model.classified_at = datetime.now(UTC)
         if not result.is_problem:
             model.embedding = None
             model.embedding_model = None
@@ -434,8 +438,8 @@ class ClusterRepository:
 
     def save(
         self,
-        cluster: "DocumentCluster",
-        topic_label: "TopicLabel",
+        cluster: DocumentCluster,
+        topic_label: TopicLabel,
         metadata: ClusterRunMetadata,
         centroid: Sequence[float] | None = None,
     ) -> PersistedCluster:
@@ -443,7 +447,7 @@ class ClusterRepository:
 
     def save_run(
         self,
-        clusters: Sequence[tuple["DocumentCluster", "TopicLabel", Sequence[float] | None]],
+        clusters: Sequence[tuple[DocumentCluster, TopicLabel, Sequence[float] | None]],
         metadata: ClusterRunMetadata,
     ) -> PersistedClusterRun:
         normalized_metadata = self._normalize_metadata(metadata)
@@ -737,8 +741,8 @@ class ClusterRepository:
     def save_to_run(
         self,
         run_id: int,
-        cluster: "DocumentCluster",
-        topic_label: "TopicLabel",
+        cluster: DocumentCluster,
+        topic_label: TopicLabel,
         centroid: Sequence[float] | None = None,
     ) -> PersistedCluster:
         session = self._session_factory()
@@ -775,8 +779,8 @@ class ClusterRepository:
         self,
         session: Session,
         run: ClusterRunModel,
-        cluster: "DocumentCluster",
-        topic_label: "TopicLabel",
+        cluster: DocumentCluster,
+        topic_label: TopicLabel,
         centroid: Sequence[float] | None,
         lookup_existing: bool,
     ) -> ClusterModel:
@@ -875,8 +879,8 @@ class ClusterRepository:
 
     @staticmethod
     def _validate_cluster(
-        cluster: "DocumentCluster",
-        topic_label: "TopicLabel",
+        cluster: DocumentCluster,
+        topic_label: TopicLabel,
         embedding_model: str,
     ) -> None:
         if not cluster.documents:
@@ -887,7 +891,7 @@ class ClusterRepository:
             raise ValueError("cluster documents must use the run embedding_model")
 
     @staticmethod
-    def _calculate_centroid(cluster: "DocumentCluster") -> list[float]:
+    def _calculate_centroid(cluster: DocumentCluster) -> list[float]:
         embeddings = [document.embedding for document in cluster.documents]
         return np.mean(np.asarray(embeddings, dtype=float), axis=0).tolist()
 

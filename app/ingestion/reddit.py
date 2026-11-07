@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import requests
@@ -66,7 +66,7 @@ class RedditHttpClient:
 
 class RedditConnector(SourceConnector):
     source = "reddit"
-    _SUPPORTED_SORTS = {"new", "hot"}
+    _SUPPORTED_SORTS = frozenset({"new", "hot"})
 
     def __init__(
         self,
@@ -90,7 +90,7 @@ class RedditConnector(SourceConnector):
     @classmethod
     def from_settings(
         cls, settings: Settings, client: RedditClient | None = None
-    ) -> "RedditConnector":
+    ) -> RedditConnector:
         return cls(
             subreddits=settings.reddit_subreddits,
             limit=settings.reddit_limit,
@@ -147,7 +147,7 @@ class RedditConnector(SourceConnector):
             body=post.get("selftext") if isinstance(post.get("selftext"), str) else "",
             url=url,
             author=author if isinstance(author, str) and author.strip() else None,
-            published_at=datetime.fromtimestamp(created_utc, tz=timezone.utc),
+            published_at=datetime.fromtimestamp(created_utc, tz=UTC),
             engagement_score=(
                 score if isinstance(score, int) and not isinstance(score, bool) else None
             ),

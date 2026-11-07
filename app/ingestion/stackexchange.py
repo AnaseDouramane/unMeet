@@ -1,4 +1,4 @@
-from typing import Iterable
+from collections.abc import Iterable
 
 from app.ingestion.base import SourceConnector
 from app.ingestion.schemas import SourceItem

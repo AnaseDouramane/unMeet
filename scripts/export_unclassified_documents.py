@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -12,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from app.database.models import SourceItemModel
 from app.database.session import SessionLocal
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "data" / "problem_detection_input.jsonl"
@@ -92,15 +92,11 @@ def _write_jsonl_atomically(output_path: Path, records: list[dict[str, object]])
         raise ExportError(f"Impossibile scrivere l'export '{output_path}': {error}") from error
     finally:
         if descriptor is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(descriptor)
-            except OSError:
-                pass
         if temporary_path is not None:
-            try:
+            with contextlib.suppress(OSError):
                 temporary_path.unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 def main() -> int:

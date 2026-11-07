@@ -4,7 +4,7 @@ import argparse
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -102,7 +102,7 @@ def import_classifications(
             model.problem_confidence = classification.confidence
             model.problem_reason = classification.reason
             model.problem_classifier = classification.classifier
-            model.classified_at = datetime.now(timezone.utc)
+            model.classified_at = datetime.now(UTC)
             if not classification.is_problem:
                 model.embedding = None
                 model.embedding_model = None

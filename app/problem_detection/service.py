@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import math
 import logging
+import math
 from numbers import Real
 
 from app.preprocessing.schemas import PreparedDocument

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
+
 from app.database.schemas import PersistedSourceItem
 from app.ingestion.schemas import SourceItem
 from app.services.ingestion_only import IngestionOnlyService
@@ -43,7 +44,7 @@ class FakeNewOnlyRepository:
 def _item(external_id: str) -> SourceItem:
     return SourceItem(
         source="reddit", external_id=external_id, title="title", body="body", url="https://x",
-        author=None, published_at=datetime.now(timezone.utc), engagement_score=None, raw_payload=None,
+        author=None, published_at=datetime.now(UTC), engagement_score=None, raw_payload=None,
     )
 
 
@@ -148,7 +149,7 @@ class FakeEmbeddingRepository:
     def find_classified_problems_without_embeddings(self):
         return [
             PersistedSourceItem(1, "1", "reddit", None, "", None, "", None, "", "text", True,
-                                None, None, None, None, None, None, None, datetime.now(timezone.utc), None, None, None)
+                                None, None, None, None, None, None, None, datetime.now(UTC), None, None, None)
         ]
 
     def save_embedding(self, source_item_id, embedding, embedding_model):

@@ -1,11 +1,11 @@
 from dataclasses import FrozenInstanceError
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm.exc import DetachedInstanceError
 
-from app.clustering.schemas import ClusterTrend, ClusterableDocument
+from app.clustering.schemas import ClusterableDocument, ClusterTrend
 from app.clustering.service import DocumentCluster
 from app.clustering.topic_labeling import TopicLabel
 from app.database.models import ClusterModel, ClusterRunModel, ClusterTrendModel, SourceItemModel
@@ -135,7 +135,7 @@ def _build_source_item(external_id: str = "123") -> SourceItem:
         body="<p>Body <i>content</i></p>",
         url="https://example.com/article",
         author="alice",
-        published_at=datetime.fromtimestamp(1_700_000_000, tz=timezone.utc),
+        published_at=datetime.fromtimestamp(1_700_000_000, tz=UTC),
         engagement_score=42,
         raw_payload={"id": 123, "type": "story", "metadata": {"score": 42}},
     )
@@ -182,13 +182,13 @@ def _source_model(document_id: int = 1, value: float = 0.1) -> SourceItemModel:
     model.problem_confidence = 0.9
     model.problem_reason = "deterministic test classification"
     model.problem_classifier = "fake-problem-classifier"
-    model.classified_at = datetime.fromtimestamp(1_700_000_050, tz=timezone.utc)
+    model.classified_at = datetime.fromtimestamp(1_700_000_050, tz=UTC)
     model.embedding = _build_embedding(value)
     model.embedding_model = "model-a"
     model.dedup_hash = f"hash-{document_id}"
     model.author = "alice"
-    model.published_at = datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
-    model.processed_at = datetime.fromtimestamp(1_700_000_100, tz=timezone.utc)
+    model.published_at = datetime.fromtimestamp(1_700_000_000, tz=UTC)
+    model.processed_at = datetime.fromtimestamp(1_700_000_100, tz=UTC)
     model.engagement_score = 42
     return model
 
@@ -203,9 +203,10 @@ class DetachableSourceItem:
         self._detached = True
 
     def __getattribute__(self, name: str):
-        if name not in {"_detached", "detach", "__class__", "__dict__"}:
-            if object.__getattribute__(self, "_detached"):
-                raise DetachedInstanceError("source item is detached")
+        if name not in {"_detached", "detach", "__class__", "__dict__"} and object.__getattribute__(
+            self, "_detached"
+        ):
+            raise DetachedInstanceError("source item is detached")
         return object.__getattribute__(self, name)
 
 
@@ -394,9 +395,9 @@ def test_cluster_repository_resolves_source_items_by_document_id_and_returns_det
 
 def test_cluster_repository_reads_only_associated_documents_in_deterministic_order() -> None:
     newest = _source_model(document_id=2)
-    newest.published_at = datetime(2024, 1, 2, tzinfo=timezone.utc)
+    newest.published_at = datetime(2024, 1, 2, tzinfo=UTC)
     oldest = _source_model(document_id=1)
-    oldest.published_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    oldest.published_at = datetime(2024, 1, 1, tzinfo=UTC)
     session = FakeSession(
         execute_results=[
             [
@@ -442,7 +443,7 @@ def test_cluster_repository_reads_only_associated_documents_in_deterministic_ord
 
 
 def test_cluster_repository_returns_latest_compatible_run_as_a_dto() -> None:
-    created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    created_at = datetime(2026, 1, 1, tzinfo=UTC)
     run = ClusterRunModel(
         id=12,
         created_at=created_at,

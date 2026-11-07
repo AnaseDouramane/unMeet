@@ -3,7 +3,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
 TrendStatus = Literal["new", "rising", "stable", "falling"]
 ClusterSortField = Literal["document_count", "opportunity_score", "growth_rate"]
 

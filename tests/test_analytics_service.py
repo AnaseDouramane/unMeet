@@ -16,7 +16,6 @@ from app.database.schemas import (
 )
 from app.opportunities.ranking import OpportunityRankingResult, OpportunityScoreComponents
 
-
 METADATA = ClusterRunMetadata("embedding-v1", 3, None, "euclidean")
 
 
@@ -200,4 +199,4 @@ def test_rejects_duplicate_current_cluster_trends() -> None:
     latest, clusters, trends, rankings, sources = _current_input()
 
     with pytest.raises(ValueError, match="duplicate trend cluster id"):
-        AnalyticsService().build(latest, clusters, trends + (trends[0],), rankings, sources, ())
+        AnalyticsService().build(latest, clusters, (*trends, trends[0]), rankings, sources, ())

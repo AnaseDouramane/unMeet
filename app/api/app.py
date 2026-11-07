@@ -7,12 +7,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.dependencies import ApiDependencies, DatabaseUnavailableError, build_default_dependencies
+from app.api.dependencies import (
+    ApiDependencies,
+    DatabaseUnavailableError,
+    build_default_dependencies,
+)
 from app.api.errors import ApiError
 from app.api.routes import analytics, clusters, health, opportunities, search, trends
 from app.api.schemas import ErrorResponse
 from app.config import Settings
-
 
 logger = logging.getLogger(__name__)
 

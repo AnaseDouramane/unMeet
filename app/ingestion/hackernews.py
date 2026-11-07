@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -185,7 +185,7 @@ class HackerNewsConnector(SourceConnector):
             body=body,
             url=item.get("url") or f"https://news.ycombinator.com/item?id={external_id}",
             author=item.get("by"),
-            published_at=datetime.fromtimestamp(published_at, tz=timezone.utc),
+            published_at=datetime.fromtimestamp(published_at, tz=UTC),
             engagement_score=item.get("score"),
             raw_payload=item,
         )
@@ -217,7 +217,7 @@ class HackerNewsConnector(SourceConnector):
             body=text,
             url=f"https://news.ycombinator.com/item?id={comment_id}",
             author=comment.get("by"),
-            published_at=datetime.fromtimestamp(published_at, tz=timezone.utc),
+            published_at=datetime.fromtimestamp(published_at, tz=UTC),
             engagement_score=None,
             raw_payload=comment,
         )

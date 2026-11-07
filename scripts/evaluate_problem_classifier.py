@@ -3,16 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.problem_detection.qwen3 import Qwen3ProblemClassifier
-from app.problem_detection.schemas import ProblemClassifier, ProblemDetectionResult
+from app.problem_detection.qwen3 import Qwen3ProblemClassifier  # noqa: E402
+from app.problem_detection.schemas import ProblemClassifier, ProblemDetectionResult  # noqa: E402
 
 DEFAULT_DATASET_PATH = PROJECT_ROOT / "tests" / "fixtures" / "problem_detection_eval.jsonl"
 

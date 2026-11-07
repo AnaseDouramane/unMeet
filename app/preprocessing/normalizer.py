@@ -1,4 +1,3 @@
-from app.ingestion.schemas import SourceItem
 
 
 def build_document_text(title: str, body: str) -> str:

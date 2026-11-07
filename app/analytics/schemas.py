@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from app.clustering.schemas import ClusterTrend
 from app.database.schemas import PersistedClusterRunDetails
 
 
-class TimeSeriesGranularity(str, Enum):
+class TimeSeriesGranularity(StrEnum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"

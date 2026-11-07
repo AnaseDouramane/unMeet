@@ -5,8 +5,12 @@ from fastapi import APIRouter, Depends
 from app.api.dependencies import ApiDependencies, get_dependencies
 from app.api.errors import ApiError
 from app.api.routes.common import document_response, opportunity_response
-from app.api.schemas import ClusterDetailResponse, ClusterListResponse, ClusterSortField, TrendStatus
-
+from app.api.schemas import (
+    ClusterDetailResponse,
+    ClusterListResponse,
+    ClusterSortField,
+    TrendStatus,
+)
 
 router = APIRouter(prefix="/api/v1/clusters", tags=["clusters"])
 

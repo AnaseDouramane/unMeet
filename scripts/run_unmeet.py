@@ -20,11 +20,11 @@ from app.embeddings.embedding_service import EmbeddingService
 from app.ingestion.factory import build_configured_connectors
 from app.problem_detection.qwen3 import Qwen3ProblemClassifier
 from app.problem_detection.service import ProblemDetectionService
-from app.services.pipeline import Pipeline
 from app.services.multi_source_ingestion import (
     MultiSourceIngestionResult,
     MultiSourceIngestionService,
 )
+from app.services.pipeline import Pipeline
 from app.services.preprocessing import PreprocessingService
 
 

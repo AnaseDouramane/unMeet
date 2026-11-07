@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.exc import OperationalError
 
@@ -42,7 +42,7 @@ def _result(
 ) -> AnalysisRunResult:
     return AnalysisRunResult(
         run_id=42,
-        created_at=datetime(2026, 7, 21, tzinfo=timezone.utc),
+        created_at=datetime(2026, 7, 21, tzinfo=UTC),
         cluster_count=0,
         document_count=document_count,
         clusters=(),
