@@ -118,3 +118,19 @@ def test_multi_source_ingestion_reports_failure_when_all_sources_fail() -> None:
     assert result.successful_source_count == 0
     assert result.failed_source_count == 2
     assert result.is_success is False
+
+
+def test_multi_source_ingestion_sums_gate_and_llm_call_counts() -> None:
+    pipeline = FakePipeline(
+        {
+            "hackernews": PipelineRunStats(10, 2, 8, 2, 0, gated_out_count=6, llm_call_count=4),
+            "reddit": PipelineRunStats(5, 1, 4, 1, 0, gated_out_count=3, llm_call_count=2),
+        }
+    )
+    result = MultiSourceIngestionService(
+        pipeline=pipeline,
+        connectors=[FakeConnector("hackernews"), FakeConnector("reddit")],
+    ).run()
+
+    assert result.gated_out_count == 9
+    assert result.llm_call_count == 6

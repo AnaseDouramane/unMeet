@@ -12,6 +12,7 @@ from app.preprocessing.schemas import PreparedDocument
 from app.problem_detection.schemas import ProblemDetectionResult
 from app.problem_detection.service import ProblemDetectionService
 from app.services.preprocessing import PreprocessingService
+from app.topics.gate import GATE_CLASSIFIER_NAME, GateDecision, TopicGate
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,8 @@ class PipelineRunStats:
     embedding_count: int
     classification_error_count: int
     skipped_count: int = 0
+    gated_out_count: int = 0
+    llm_call_count: int = 0
 
 
 class Pipeline:
@@ -34,6 +37,7 @@ class Pipeline:
         embedding_service: EmbeddingService,
         repository: SourceItemRepository,
         classification_workers: int = 1,
+        topic_gate: TopicGate | None = None,
     ) -> None:
         if (
             isinstance(classification_workers, bool)
@@ -48,6 +52,7 @@ class Pipeline:
         self.embedding_service = embedding_service
         self.problem_detection_service = problem_detection_service
         self.classification_workers = classification_workers
+        self.topic_gate = topic_gate
         self.last_run_stats: PipelineRunStats | None = None
         self._accepted: list[PreparedDocument] = []
         self._counts: dict[str, int] = {}
@@ -56,7 +61,16 @@ class Pipeline:
         self.last_run_stats = None
 
         self._accepted = []
-        self._counts = {"acquired": 0, "non_problem": 0, "errors": 0, "skipped": 0}
+        self._counts = {
+            "acquired": 0,
+            "non_problem": 0,
+            "errors": 0,
+            "skipped": 0,
+            "gated_out": 0,
+            "llm_calls": 0,
+        }
+        if self.topic_gate is not None:
+            self.topic_gate.begin_run()
         active_connector = connector or self.connector
         batch_size = self.classification_workers * 8
         pending: list[tuple[SourceItem, PreparedDocument]] = []
@@ -84,6 +98,8 @@ class Pipeline:
             embedding_count=len(accepted_documents),
             classification_error_count=self._counts["errors"],
             skipped_count=self._counts["skipped"],
+            gated_out_count=self._counts["gated_out"],
+            llm_call_count=self._counts["llm_calls"],
         )
         return accepted_documents
 
@@ -94,14 +110,41 @@ class Pipeline:
         """
         if not batch:
             return
-        results = self._classify(iter([document for _, document in batch]))
-        for (source_item, prepared_document), (detection_result, malformed) in zip(
-            batch, results, strict=True
-        ):
+        decisions: list[GateDecision | None] = [
+            self.topic_gate.evaluate(document.document_text) if self.topic_gate else None
+            for _, document in batch
+        ]
+        to_classify = [
+            document
+            for (_, document), decision in zip(batch, decisions, strict=True)
+            if decision is None or decision.passed
+        ]
+        self._counts["llm_calls"] += len(to_classify)
+        classified = iter(self._classify(iter(to_classify)))
+        for (source_item, prepared_document), decision in zip(batch, decisions, strict=True):
+            if decision is not None and not decision.passed:
+                self._counts["gated_out"] += 1
+                self._counts["non_problem"] += 1
+                self.repository.save(
+                    source_item,
+                    prepared_document,
+                    problem_detection_result=ProblemDetectionResult(
+                        is_problem=False,
+                        confidence=1.0,
+                        reason="No active topic matches this item",
+                        classifier_name=GATE_CLASSIFIER_NAME,
+                    ),
+                )
+                continue
+            detection_result, malformed = next(classified)
             if malformed:
                 self._counts["errors"] += 1
             if detection_result.is_problem:
-                embedding = self.embedding_service.encode(prepared_document.document_text)
+                embedding = (
+                    decision.embedding
+                    if decision is not None
+                    else self.embedding_service.encode(prepared_document.document_text)
+                )
                 self.repository.save(
                     source_item,
                     prepared_document,
@@ -155,5 +198,8 @@ class Pipeline:
             return False
         existing = lookup(source_item.source, source_item.external_id)
         if existing is None or existing.is_problem is None:
+            return False
+        if getattr(existing, "problem_classifier", None) == GATE_CLASSIFIER_NAME:
+            # Gated items were never judged by the model: re-check against current topics.
             return False
         return existing.dedup_hash == prepared_document.dedup_hash
