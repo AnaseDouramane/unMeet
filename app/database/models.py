@@ -309,6 +309,8 @@ class WorkspaceModel(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     slug: Mapped[str] = mapped_column(String(80), nullable=False)
     plan: Mapped[str] = mapped_column(String(32), nullable=False, server_default="free")
+    website_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    product_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

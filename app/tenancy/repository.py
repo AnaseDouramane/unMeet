@@ -92,6 +92,19 @@ class TenancyRepository:
             session.refresh(model)
             return _workspace(model)
 
+    def set_profile(
+        self, workspace_id: int, website_url: str | None, product_summary: str | None
+    ) -> Workspace:
+        with self._session_factory() as session:
+            model = session.get(WorkspaceModel, workspace_id)
+            if model is None:
+                raise NotFoundError(f"workspace {workspace_id} does not exist")
+            model.website_url = website_url or None
+            model.product_summary = (product_summary or "").strip()[:1000] or None
+            session.commit()
+            session.refresh(model)
+            return _workspace(model)
+
     @staticmethod
     def _unique_slug(session: Session, name: str) -> str:
         base = slugify(name)
@@ -251,7 +264,15 @@ class TenancyRepository:
 
 
 def _workspace(model: WorkspaceModel) -> Workspace:
-    return Workspace(model.id, model.name, model.slug, model.plan, model.created_at)
+    return Workspace(
+        model.id,
+        model.name,
+        model.slug,
+        model.plan,
+        model.created_at,
+        model.website_url,
+        model.product_summary,
+    )
 
 
 def _key(model: ApiKeyModel) -> ApiKeyInfo:

@@ -77,9 +77,7 @@ def list_signals(
     )
 
 
-@router.get(
-    "/signals.csv", response_class=PlainTextResponse, dependencies=[Depends(get_principal)]
-)
+@router.get("/signals.csv", response_class=PlainTextResponse, dependencies=[Depends(get_principal)])
 def export_signals(
     query: SignalQuery = Depends(_signal_query),
     topic: str | None = Query(default=None, max_length=500, description=_TOPIC_DESCRIPTION),

@@ -106,9 +106,7 @@ def require_manager(principal: Principal = Depends(get_principal)) -> Principal:
     return principal
 
 
-def get_user_identity(
-    request: Request, dependencies: ApiDependencies = Depends(get_dependencies)
-):
+def get_user_identity(request: Request, dependencies: ApiDependencies = Depends(get_dependencies)):
     """The logged-in user (JWT only), for actions that are not tied to a workspace yet."""
     credential = _credential(request)
     verifier = dependencies.token_verifier

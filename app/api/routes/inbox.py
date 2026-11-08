@@ -4,10 +4,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
+from app.api.budget import ensure_llm_budget
 from app.api.dependencies import ApiDependencies, get_dependencies
 from app.api.errors import ApiError
 from app.api.principal import get_principal
 from app.inbox.schemas import MAX_BULK, InboxItem
+from app.llm.client import LLMRequestError
+from app.reply.service import ReplyError
 from app.tenancy.schemas import Principal
 
 router = APIRouter(prefix="/api/v1/inbox", tags=["inbox"])
@@ -128,3 +131,49 @@ def update_state(
     except ValueError as error:
         raise ApiError(400, "invalid_state", str(error)) from error
     return StateUpdateResponse(updated=updated)
+
+
+class ReplyDraftResponse(BaseModel):
+    draft: str
+    mentions_product: bool
+    disclosure_added: bool
+    community_rules: str
+    note: str = "Review and edit it, then post it yourself. unMeet never posts for you."
+
+
+@router.post("/{signal_id}/reply-draft", response_model=ReplyDraftResponse)
+def reply_draft(
+    signal_id: int,
+    principal: Principal = Depends(get_principal),
+    dependencies: ApiDependencies = Depends(get_dependencies),
+) -> ReplyDraftResponse:
+    """A helpful, affiliation-disclosing draft reply to a signal in the caller's inbox."""
+    assistant = dependencies.reply_assistant
+    if assistant is None:
+        raise ApiError(503, "llm_not_configured", "set LLM_MODEL (and a key) to draft replies")
+    item = dependencies.inbox.get_item(principal.workspace_id, signal_id)
+    text = dependencies.inbox.signal_text(principal.workspace_id, signal_id)
+    if item is None or not text:
+        raise ApiError(404, "signal_not_found", f"signal {signal_id} is not in your inbox")
+    workspace = dependencies.tenancy.get_workspace(principal.workspace_id)
+    ensure_llm_budget(dependencies, principal.workspace_id)
+    try:
+        draft = assistant.draft(
+            source=item.source,
+            post_text=text,
+            company=workspace.name if workspace else "our company",
+            product_summary=workspace.product_summary if workspace else None,
+            workspace_id=principal.workspace_id,
+        )
+    except ReplyError as error:
+        raise ApiError(422, "draft_failed", str(error)) from error
+    except LLMRequestError as error:
+        raise ApiError(
+            502, "llm_unavailable", "the AI provider is unavailable, try again"
+        ) from error
+    return ReplyDraftResponse(
+        draft=draft.text,
+        mentions_product=draft.mentions_product,
+        disclosure_added=draft.disclosure_added,
+        community_rules=draft.community_rules,
+    )

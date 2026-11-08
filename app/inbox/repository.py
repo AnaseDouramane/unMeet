@@ -44,6 +44,8 @@ class InboxStore(Protocol):
 
     def counts(self, workspace_id: int) -> dict[str, int]: ...
 
+    def signal_text(self, workspace_id: int, signal_id: int) -> str | None: ...
+
     def get_item(self, workspace_id: int, signal_id: int) -> InboxItem | None: ...
 
     def set_state(
@@ -138,6 +140,16 @@ class InboxRepository:
         with self._session_factory() as session:
             row = session.execute(statement).first()
             return None if row is None else _to_item(row)
+
+    def signal_text(self, workspace_id: int, signal_id: int) -> str | None:
+        """The post's text, only for signals in this workspace's inbox."""
+        statement = self._base(workspace_id).where(SourceItemModel.id == signal_id)
+        with self._session_factory() as session:
+            row = session.execute(statement).first()
+            if row is None:
+                return None
+            model = row[0]
+            return (model.document_text or f"{model.title}\n{model.body}").strip()
 
     def counts(self, workspace_id: int) -> dict[str, int]:
         subquery = self._base(workspace_id).subquery()

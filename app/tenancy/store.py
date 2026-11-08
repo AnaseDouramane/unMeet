@@ -34,6 +34,10 @@ class TenancyStore(Protocol):
 
     def set_plan(self, workspace_id: int, plan: str) -> Workspace: ...
 
+    def set_profile(
+        self, workspace_id: int, website_url: str | None, product_summary: str | None
+    ) -> Workspace: ...
+
     def get_or_create_user(self, email: str, external_id: str | None = None) -> User: ...
 
     def workspaces_for_user(self, user_id: int) -> tuple[tuple[Workspace, Role], ...]: ...
@@ -115,6 +119,19 @@ class InMemoryTenancyStore:
         with self._lock:
             workspace = self._require_workspace(workspace_id)
             updated = replace(workspace, plan=plan)
+            self._workspaces[workspace_id] = updated
+            return updated
+
+    def set_profile(
+        self, workspace_id: int, website_url: str | None, product_summary: str | None
+    ) -> Workspace:
+        with self._lock:
+            workspace = self._require_workspace(workspace_id)
+            updated = replace(
+                workspace,
+                website_url=website_url or None,
+                product_summary=(product_summary or "").strip()[:1000] or None,
+            )
             self._workspaces[workspace_id] = updated
             return updated
 

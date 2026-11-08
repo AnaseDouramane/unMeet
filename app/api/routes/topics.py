@@ -11,7 +11,7 @@ from app.api.schemas import (
     TopicListResponse,
     TopicResponse,
 )
-from app.billing.plans import plan_for
+from app.api.topic_service import ensure_topic_capacity
 from app.signals.schemas import MAX_SIGNAL_LIMIT
 from app.tenancy.schemas import Principal
 from app.topics.matching import topic_signal_query
@@ -61,22 +61,7 @@ def create_topic(
     principal: Principal = Depends(require_manager),
     dependencies: ApiDependencies = Depends(get_dependencies),
 ) -> TopicResponse:
-    workspace = dependencies.tenancy.get_workspace(principal.workspace_id)
-    plan = plan_for(workspace.plan if workspace else "free")
-    if dependencies.topic_store.count(principal.workspace_id) >= plan.max_topics:
-        raise ApiError(
-            402,
-            "plan_limit_reached",
-            f"the {plan.name} plan allows {plan.max_topics} topic(s); upgrade to add more",
-            {"limit": "topics", "plan": plan.name, "max": plan.max_topics},
-        )
-    if request.webhook_url and not plan.webhooks:
-        raise ApiError(
-            402,
-            "plan_limit_reached",
-            f"webhooks are not included in the {plan.name} plan",
-            {"limit": "webhooks", "plan": plan.name},
-        )
+    ensure_topic_capacity(dependencies, principal.workspace_id, bool(request.webhook_url))
     try:
         definition = TopicDefinition(
             name=request.name,

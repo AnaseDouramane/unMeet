@@ -28,6 +28,8 @@ class Workspace:
     slug: str
     plan: str
     created_at: datetime | None = None
+    website_url: str | None = None
+    product_summary: str | None = None
 
 
 @dataclass(frozen=True)

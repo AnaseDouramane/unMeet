@@ -25,12 +25,16 @@ from app.embeddings.embedding_service import EmbeddingService
 from app.errors import DatabaseUnavailableError
 from app.inbox.repository import InboxRepository, InboxStore
 from app.inbox.schemas import InboxItem
+from app.llm.client import ChatCompletionsClient
+from app.net.safe_fetch import SafeFetcher
+from app.onboarding.service import OnboardingService
 from app.opportunities.ranking import (
     OpportunityClusterInput,
     OpportunityRankingResult,
     OpportunityRankingService,
 )
 from app.privacy.service import PrivacyRepository
+from app.reply.service import ReplyAssistant
 from app.signals.service import EmptySignalReader, RepositorySignalReader, SignalReader
 from app.tenancy.repository import TenancyRepository
 from app.tenancy.store import InMemoryTenancyStore, TenancyStore
@@ -170,7 +174,9 @@ class RepositoryAnalyticsReadFacade:
         if cluster is None:
             return None
         try:
-            documents = self._cluster_repository.get_documents_for_cluster(cluster_id, document_limit)
+            documents = self._cluster_repository.get_documents_for_cluster(
+                cluster_id, document_limit
+            )
         except SQLAlchemyError as error:
             raise DatabaseUnavailableError("database is unavailable") from error
         return ClusterDetail(
@@ -192,7 +198,9 @@ class RepositoryAnalyticsReadFacade:
 
 
 class RepositorySemanticSearch:
-    def __init__(self, embedding_service: EmbeddingService, repository: SourceItemRepository) -> None:
+    def __init__(
+        self, embedding_service: EmbeddingService, repository: SourceItemRepository
+    ) -> None:
         self._embedding_service = embedding_service
         self._repository = repository
 
@@ -256,7 +264,12 @@ class EmptyInbox:
     def get_item(self, workspace_id: int, signal_id: int) -> InboxItem | None:
         return None
 
-    def set_state(self, workspace_id, signal_ids, state, note=None, topic_id=None, user_id=None) -> int:
+    def signal_text(self, workspace_id: int, signal_id: int) -> str | None:
+        return None
+
+    def set_state(
+        self, workspace_id, signal_ids, state, note=None, topic_id=None, user_id=None
+    ) -> int:
         return 0
 
     def feedback_examples(self, workspace_id: int, topic_id: int, per_label: int = 3):
@@ -273,11 +286,15 @@ class NoPrivacyService:
 
 
 class UsageReader(Protocol):
-    def totals(self, since: datetime | None = None) -> tuple[UsageTotals, ...]: ...
+    def totals(
+        self, since: datetime | None = None, workspace_id: int | None = None
+    ) -> tuple[UsageTotals, ...]: ...
 
 
 class EmptyUsageReader:
-    def totals(self, since: datetime | None = None) -> tuple[UsageTotals, ...]:
+    def totals(
+        self, since: datetime | None = None, workspace_id: int | None = None
+    ) -> tuple[UsageTotals, ...]:
         return ()
 
 
@@ -293,11 +310,32 @@ class ApiDependencies:
     freshness_reader: FreshnessReader = field(default_factory=EmptyFreshnessReader)
     tenancy: TenancyStore = field(default_factory=InMemoryTenancyStore)
     inbox: InboxStore = field(default_factory=EmptyInbox)
+    onboarding: OnboardingService | None = None
+    reply_assistant: ReplyAssistant | None = None
     token_verifier: TokenVerifier | None = None
 
 
 def build_default_dependencies(settings: Settings) -> ApiDependencies:
     embedding_service = EmbeddingService(settings.embedding_model)
+    onboarding = reply_assistant = None
+    if settings.llm_model:
+        usage = LlmUsageRepository(
+            input_usd_per_mtok=settings.llm_input_usd_per_mtok,
+            output_usd_per_mtok=settings.llm_output_usd_per_mtok,
+        )
+        sink = usage.record if settings.llm_usage_tracking else None
+
+        def client(purpose: str) -> ChatCompletionsClient:
+            return ChatCompletionsClient(
+                model=settings.llm_model or "",
+                base_url=settings.llm_base_url,
+                api_key=settings.llm_api_key,
+                usage_sink=sink,
+                purpose=purpose,
+            )
+
+        onboarding = OnboardingService(client("onboarding"), SafeFetcher())
+        reply_assistant = ReplyAssistant(client("reply_draft"))
     return ApiDependencies(
         analytics_reader=RepositoryAnalyticsReadFacade(
             ClusterRepository(),
@@ -312,6 +350,8 @@ def build_default_dependencies(settings: Settings) -> ApiDependencies:
         freshness_reader=RepositoryFreshnessReader(SourceItemRepository()),
         tenancy=TenancyRepository(),
         inbox=InboxRepository(),
+        onboarding=onboarding,
+        reply_assistant=reply_assistant,
         token_verifier=build_token_verifier(settings),
     )
 

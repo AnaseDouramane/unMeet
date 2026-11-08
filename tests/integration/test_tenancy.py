@@ -149,3 +149,13 @@ def test_migration_moves_existing_topics_into_a_default_workspace() -> None:
         ).one()
     assert tuple(row) == ("Legacy", "default")
     engine.dispose()
+
+
+def test_workspace_profile_is_saved_and_trimmed(store) -> None:
+    workspace = store.create_workspace("W", "o@w.test")
+    updated = store.set_profile(workspace.id, "https://acme.test", "  We sell CRM cleaning.  ")
+    assert (updated.website_url, updated.product_summary) == ("https://acme.test", "We sell CRM cleaning.")
+    assert store.get_workspace(workspace.id).product_summary == "We sell CRM cleaning."
+    assert store.set_profile(workspace.id, None, "  ").product_summary is None
+    with pytest.raises(NotFoundError):
+        store.set_profile(999, None, None)
