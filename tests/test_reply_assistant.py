@@ -139,3 +139,28 @@ def test_unusable_answers_raise(answer) -> None:
 def test_provider_errors_pass_through() -> None:
     with pytest.raises(LLMRequestError):
         draft(LLMRequestError("down"))
+
+
+def test_a_disclosure_must_name_the_company_and_not_claim_to_be_unrelated() -> None:
+    # The wording matches a disclosure phrase but says nothing true about the affiliation.
+    for reply in (
+        "Disclosure: I work on a different project, not related to yours. Try merging on email domain.",
+        "I work at a startup. Merging contacts on email domain catches most duplicates quickly.",
+        "Full disclosure: unrelated to Acme, but merging on email domain catches most of these.",
+    ):
+        result, _ = draft({"reply": reply, "mentions_product": False})
+        assert result.disclosure_added and result.text.startswith("Disclosure: I work at Acme. ")
+
+
+def test_naming_the_company_or_our_side_counts_as_a_disclosure() -> None:
+    from app.reply.service import has_disclosure
+
+    assert has_disclosure("Disclosure: I work on Acme. Merge on email domain.", "Acme")
+    assert has_disclosure("disclosure: i work at acme. merge on email domain.", "Acme")
+    assert has_disclosure(
+        "Full disclosure: our team built a tool for this. First, try email domain.", "Acme"
+    )
+    assert not has_disclosure(
+        "Merge on email domain first. Acme is one option.", "Acme"
+    )  # no phrase
+    assert not has_disclosure("", "Acme")

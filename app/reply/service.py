@@ -48,8 +48,9 @@ Rules:
 - Start by engaging with the author's actual problem; give concrete, useful help even if they never
   use our product.
 - Mention our product only if it genuinely fits, in one sentence, with no superlatives.
-- Disclose the affiliation in the first person within the first two sentences (for example
-  "Disclosure: I work on <product>."). Never pretend to be an unaffiliated user.
+- Disclose the affiliation in the first person within the first two sentences, naming the product
+  exactly as given in <product> (for example "Disclosure: I work on <product name>."). Never pretend
+  to be an unaffiliated user and never say your project is unrelated.
 - Use only the facts in <product>. Do not invent features, customers, prices or results.
 - No links unless the author asked for a tool by name. No emojis, no hashtags, no sales language.
 - At most 110 words, plain text.
@@ -61,6 +62,21 @@ _DISCLOSURE = re.compile(
     r"|i['’]m (?:with|part of|from|on the team|affiliated)|affiliated with|my (?:company|team|startup))",
     re.IGNORECASE,
 )
+
+
+_OUR_SIDE = re.compile(r"\b(?:my|our)\s+(?:company|team|startup|product|tool)\b", re.IGNORECASE)
+_UNRELATED = re.compile(
+    r"\b(?:unrelated|not related|different (?:project|company|product))\b", re.IGNORECASE
+)
+
+
+def has_disclosure(text: str, company: str) -> bool:
+    """True when the opening discloses a real affiliation: a disclosure phrase that names the
+    company (or says "my/our team"), and does not claim to be unrelated."""
+    head = text[:400]
+    if not _DISCLOSURE.search(head) or _UNRELATED.search(head):
+        return False
+    return company.strip().lower() in head.lower() or bool(_OUR_SIDE.search(head))
 
 
 class ReplyError(RuntimeError):
@@ -117,7 +133,7 @@ class ReplyAssistant:
             raise ReplyError("the model returned no reply")
         text = re.sub(r"[ \t]+", " ", reply.strip())[:MAX_REPLY_CHARS]
         added = False
-        if not _DISCLOSURE.search(text[:400]):
+        if not has_disclosure(text, company):
             text = f"Disclosure: I work at {company}. {text}"
             added = True
         mentions = payload.get("mentions_product")

@@ -49,6 +49,9 @@ Engineering choices worth knowing:
 
 ## Quick start
 
+To try the product by hand (one command to set up, a digest and a feedback sheet for a manual test with
+founders), follow [docs/PROTOTYPE.md](docs/PROTOTYPE.md).
+
 ```bash
 cp .env.example .env            # set LLM_API_KEY (e.g. a Groq key) and UNMEET_API_KEY
 docker compose up -d            # Postgres 16 + pgvector
