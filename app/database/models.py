@@ -404,3 +404,28 @@ class SignalStateModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class DeliveryChannelModel(Base):
+    """Where a workspace wants its digest: an email address or a Slack incoming webhook."""
+
+    __tablename__ = "delivery_channels"
+    __table_args__ = (
+        CheckConstraint("kind IN ('email', 'slack')", name="ck_delivery_channels_kind"),
+        CheckConstraint("frequency IN ('daily', 'weekly')", name="ck_delivery_channels_frequency"),
+        UniqueConstraint("workspace_id", "kind", "target", name="uq_delivery_channels_target"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    target: Mapped[str] = mapped_column(Text, nullable=False)
+    frequency: Mapped[str] = mapped_column(String(16), nullable=False, server_default="daily")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

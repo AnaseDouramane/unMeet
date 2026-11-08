@@ -17,6 +17,7 @@ from app.api.middleware import ApiMiddleware, SlidingWindowRateLimiter
 from app.api.routes import (
     analytics,
     audit,
+    channels,
     clusters,
     health,
     inbox,
@@ -86,6 +87,7 @@ def create_app(
     app.include_router(workspaces.router)
     app.include_router(inbox.router)
     app.include_router(onboarding.router)
+    app.include_router(channels.router)
     return app
 
 

@@ -154,8 +154,41 @@ def test_migration_moves_existing_topics_into_a_default_workspace() -> None:
 def test_workspace_profile_is_saved_and_trimmed(store) -> None:
     workspace = store.create_workspace("W", "o@w.test")
     updated = store.set_profile(workspace.id, "https://acme.test", "  We sell CRM cleaning.  ")
-    assert (updated.website_url, updated.product_summary) == ("https://acme.test", "We sell CRM cleaning.")
+    assert (updated.website_url, updated.product_summary) == (
+        "https://acme.test",
+        "We sell CRM cleaning.",
+    )
     assert store.get_workspace(workspace.id).product_summary == "We sell CRM cleaning."
     assert store.set_profile(workspace.id, None, "  ").product_summary is None
     with pytest.raises(NotFoundError):
         store.set_profile(999, None, None)
+
+
+def test_delivery_channels_round_trip_and_cascade(session_factory) -> None:
+    from datetime import UTC, datetime
+
+    from app.delivery.repository import ChannelRepository
+
+    tenancy = TenancyRepository(session_factory)
+    acme, beta = (
+        tenancy.create_workspace("Acme", "a@a.test").id,
+        tenancy.create_workspace("Beta", "b@b.test").id,
+    )
+    channels = ChannelRepository(session_factory)
+
+    first = channels.add(acme, "email", "team@a.test", "daily")
+    channels.add(beta, "email", "team@a.test", "weekly")  # same target in another workspace is fine
+    with pytest.raises(ConflictError):
+        channels.add(acme, "email", "team@a.test", "weekly")
+
+    assert [c.id for c in channels.list(acme)] == [first.id] and len(channels.list()) == 2
+    moment = datetime(2026, 11, 8, tzinfo=UTC)
+    channels.mark_failed(first.id, "x" * 900)
+    assert len(channels.list(acme)[0].last_error) == 500
+    channels.mark_sent(first.id, moment)
+    stored = channels.list(acme)[0]
+    assert stored.last_sent_at == moment and stored.last_error is None
+    with pytest.raises(NotFoundError):
+        channels.remove(beta, first.id)
+    channels.remove(acme, first.id)
+    assert channels.list(acme) == ()

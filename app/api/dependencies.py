@@ -21,6 +21,7 @@ from app.audit.log import AuditLog, AuditLogRepository, InMemoryAuditLog
 from app.auth.jwt import JwtVerifier, TokenVerifier
 from app.config import Settings
 from app.database.repository import ClusterRepository, SourceItemRepository
+from app.delivery.repository import ChannelRepository, ChannelStore, InMemoryChannelStore
 from app.embeddings.embedding_service import EmbeddingService
 from app.errors import DatabaseUnavailableError
 from app.inbox.repository import InboxRepository, InboxStore
@@ -310,6 +311,7 @@ class ApiDependencies:
     freshness_reader: FreshnessReader = field(default_factory=EmptyFreshnessReader)
     tenancy: TenancyStore = field(default_factory=InMemoryTenancyStore)
     inbox: InboxStore = field(default_factory=EmptyInbox)
+    channels: ChannelStore = field(default_factory=InMemoryChannelStore)
     onboarding: OnboardingService | None = None
     reply_assistant: ReplyAssistant | None = None
     token_verifier: TokenVerifier | None = None
@@ -350,6 +352,7 @@ def build_default_dependencies(settings: Settings) -> ApiDependencies:
         freshness_reader=RepositoryFreshnessReader(SourceItemRepository()),
         tenancy=TenancyRepository(),
         inbox=InboxRepository(),
+        channels=ChannelRepository(),
         onboarding=onboarding,
         reply_assistant=reply_assistant,
         token_verifier=build_token_verifier(settings),
