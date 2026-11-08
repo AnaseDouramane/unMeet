@@ -263,3 +263,20 @@ class AuditLogModel(Base):
     resource_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class LlmUsageModel(Base):
+    """Tokens and estimated cost of one LLM call (cost is NULL when no prices are configured)."""
+
+    __tablename__ = "llm_usage"
+    __table_args__ = (Index("ix_llm_usage_created_at", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)

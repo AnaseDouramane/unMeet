@@ -24,6 +24,7 @@ from app.api.routes import (
     signals,
     topics,
     trends,
+    usage,
 )
 from app.api.schemas import ErrorResponse
 from app.config import Settings
@@ -64,6 +65,7 @@ def create_app(
     app.include_router(signals.router)
     app.include_router(topics.router)
     app.include_router(audit.router)
+    app.include_router(usage.router)
     return app
 
 

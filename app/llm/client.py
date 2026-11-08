@@ -6,16 +6,37 @@ Together or a local vLLM/Ollama server by changing ``base_url``.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 import requests
 
 _RETRYABLE_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504})
+
+
+@dataclass(frozen=True)
+class LLMUsage:
+    """Token usage of one completion, as reported by the provider."""
+
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+    purpose: str = "completion"
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+    def cost_usd(self, input_per_mtok: float, output_per_mtok: float) -> float:
+        return (
+            self.prompt_tokens * input_per_mtok + self.completion_tokens * output_per_mtok
+        ) / 1_000_000
 
 
 class LLMRequestError(RuntimeError):
@@ -36,6 +57,8 @@ class ChatCompletionsClient:
         max_retries: int = 4,
         session: requests.Session | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        usage_sink: Callable[[LLMUsage], None] | None = None,
+        purpose: str = "completion",
     ) -> None:
         if not isinstance(model, str) or not model.strip():
             raise ValueError("model must not be empty")
@@ -53,13 +76,45 @@ class ChatCompletionsClient:
         self._session = session or requests.Session()
         self._sleep = sleep
         self._request_count = 0
+        self._prompt_tokens = 0
+        self._completion_tokens = 0
         self._count_lock = threading.Lock()
+        self._usage_sink = usage_sink
+        self._purpose = purpose
 
     @property
     def request_count(self) -> int:
         """Completions requested so far (retries of one request are not counted)."""
         with self._count_lock:
             return self._request_count
+
+    @property
+    def token_usage(self) -> tuple[int, int]:
+        """(prompt_tokens, completion_tokens) reported by the provider so far."""
+        with self._count_lock:
+            return self._prompt_tokens, self._completion_tokens
+
+    def _record_usage(self, payload: Any) -> None:
+        usage = payload.get("usage") if isinstance(payload, dict) else None
+        if not isinstance(usage, dict):
+            return
+        prompt, completion = usage.get("prompt_tokens"), usage.get("completion_tokens")
+        if (
+            isinstance(prompt, bool)
+            or not isinstance(prompt, int)
+            or prompt < 0
+            or isinstance(completion, bool)
+            or not isinstance(completion, int)
+            or completion < 0
+        ):
+            return
+        with self._count_lock:
+            self._prompt_tokens += prompt
+            self._completion_tokens += completion
+        if self._usage_sink is not None:
+            # Accounting must never break a completion.
+            with contextlib.suppress(Exception):
+                self._usage_sink(LLMUsage(self.model, prompt, completion, self._purpose))
 
     def complete(
         self,
@@ -107,9 +162,12 @@ class ChatCompletionsClient:
                     f"LLM provider returned HTTP {response.status_code}: {response.text[:300]}"
                 )
             try:
-                return str(response.json()["choices"][0]["message"]["content"])
+                payload = response.json()
+                content = str(payload["choices"][0]["message"]["content"])
             except (ValueError, KeyError, IndexError, TypeError) as error:
                 raise LLMResponseError("LLM response has no message content") from error
+            self._record_usage(payload)
+            return content
         raise LLMRequestError("LLM request failed after retries")  # pragma: no cover
 
 

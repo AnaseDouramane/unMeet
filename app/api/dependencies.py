@@ -29,6 +29,7 @@ from app.opportunities.ranking import (
 from app.signals.service import EmptySignalReader, RepositorySignalReader, SignalReader
 from app.topics.repository import TopicRepository
 from app.topics.store import InMemoryTopicStore, TopicStore
+from app.usage.llm_usage import LlmUsageRepository, UsageTotals
 
 
 @dataclass(frozen=True)
@@ -214,6 +215,15 @@ class RepositorySemanticSearch:
         )
 
 
+class UsageReader(Protocol):
+    def totals(self, since: datetime | None = None) -> tuple[UsageTotals, ...]: ...
+
+
+class EmptyUsageReader:
+    def totals(self, since: datetime | None = None) -> tuple[UsageTotals, ...]:
+        return ()
+
+
 @dataclass(frozen=True)
 class ApiDependencies:
     analytics_reader: AnalyticsReadFacade
@@ -221,6 +231,7 @@ class ApiDependencies:
     signal_reader: SignalReader = field(default_factory=EmptySignalReader)
     topic_store: TopicStore = field(default_factory=InMemoryTopicStore)
     audit_log: AuditLog = field(default_factory=InMemoryAuditLog)
+    usage_reader: UsageReader = field(default_factory=EmptyUsageReader)
 
 
 def build_default_dependencies(embedding_model: str) -> ApiDependencies:
@@ -234,6 +245,7 @@ def build_default_dependencies(embedding_model: str) -> ApiDependencies:
         signal_reader=RepositorySignalReader(embedding_service, SourceItemRepository()),
         topic_store=TopicRepository(),
         audit_log=AuditLogRepository(),
+        usage_reader=LlmUsageRepository(),
     )
 
 

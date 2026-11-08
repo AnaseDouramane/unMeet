@@ -2,6 +2,7 @@ from app.clustering.llm_labeling import LLMTopicLabelingService
 from app.clustering.topic_labeling import TopicLabelingService
 from app.config import Settings
 from app.llm.client import ChatCompletionsClient
+from app.problem_detection.factory import build_usage_sink
 
 
 def build_cluster_labeler(settings: Settings) -> TopicLabelingService | LLMTopicLabelingService:
@@ -16,6 +17,8 @@ def build_cluster_labeler(settings: Settings) -> TopicLabelingService | LLMTopic
             model=settings.llm_model,
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key,
+            usage_sink=build_usage_sink(settings),
+            purpose="cluster_labeling",
         )
         return LLMTopicLabelingService(client)
     raise ValueError(f"Unknown LABELING_BACKEND {backend!r}; expected 'keywords' or 'llm'")
