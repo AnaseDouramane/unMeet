@@ -262,3 +262,18 @@ def test_unused_budget_rolls_over_to_the_following_searches() -> None:
 
     # The quiet search used 1 of its 4; the busy one may use the other 7 (it only has hits to give).
     assert items[0] == "1" and len(items) == 8
+
+
+def test_keyword_searches_are_exact_not_fuzzy_and_tag_only_searches_are_untouched() -> None:
+    session = Session(_page([]), _page([]))
+    list(
+        _connector(
+            session, SearchSpec("comment", '"looking for a tool"'), SearchSpec("ask_hn")
+        ).fetch()
+    )
+
+    keyword, plain = (call["params"] for call in session.calls)
+    assert keyword["query"] == '"looking for a tool"'
+    assert keyword["advancedSyntax"] == "true" and keyword["typoTolerance"] == "false"
+    assert keyword["queryType"] == "prefixNone" and keyword["removeWordsIfNoResults"] == "none"
+    assert "query" not in plain and "advancedSyntax" not in plain
