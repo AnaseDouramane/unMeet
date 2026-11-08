@@ -19,6 +19,7 @@ from app.database.schemas import ClusterRunMetadata
 from app.embeddings.embedding_service import EmbeddingService
 from app.ingestion.base import SourceConnector
 from app.ingestion.factory import build_configured_connectors
+from app.privacy.service import ErasureFilter, PrivacyRepository
 from app.problem_detection.factory import build_problem_classifier
 from app.problem_detection.service import ProblemDetectionService
 from app.services.multi_source_ingestion import (
@@ -69,6 +70,7 @@ def build_ingestion(settings: Settings) -> IngestionComponents:
         classification_workers=getattr(settings, "classification_workers", 1),
         topic_gate=topic_gate,
         classification_batch_size=getattr(settings, "classification_batch_size", 1),
+        erasure_filter=ErasureFilter(PrivacyRepository()),
     )
     return IngestionComponents(pipeline, connectors, embedding_service, source_item_repository)
 

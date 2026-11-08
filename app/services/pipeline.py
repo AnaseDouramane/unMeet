@@ -9,6 +9,7 @@ from app.ingestion.base import SourceConnector
 from app.ingestion.hackernews import HackerNewsConnector
 from app.ingestion.schemas import SourceItem
 from app.preprocessing.schemas import PreparedDocument
+from app.privacy.service import ErasureFilter
 from app.problem_detection.schemas import ProblemDetectionResult, TopicContext
 from app.problem_detection.service import ProblemDetectionService
 from app.services.preprocessing import PreprocessingService
@@ -24,6 +25,7 @@ class PipelineRunStats:
     classification_error_count: int
     skipped_count: int = 0
     gated_out_count: int = 0
+    suppressed_count: int = 0
     llm_call_count: int = 0
 
 
@@ -39,6 +41,7 @@ class Pipeline:
         classification_workers: int = 1,
         topic_gate: TopicGate | None = None,
         classification_batch_size: int = 1,
+        erasure_filter: ErasureFilter | None = None,
     ) -> None:
         if (
             isinstance(classification_workers, bool)
@@ -61,6 +64,7 @@ class Pipeline:
         self.classification_workers = classification_workers
         self.classification_batch_size = classification_batch_size
         self.topic_gate = topic_gate
+        self.erasure_filter = erasure_filter
         self.last_run_stats: PipelineRunStats | None = None
         self._accepted: list[PreparedDocument] = []
         self._counts: dict[str, int] = {}
@@ -75,16 +79,24 @@ class Pipeline:
             "errors": 0,
             "skipped": 0,
             "gated_out": 0,
+            "suppressed": 0,
             "llm_calls": 0,
         }
         if self.topic_gate is not None:
             self.topic_gate.begin_run()
+        if self.erasure_filter is not None:
+            self.erasure_filter.refresh()
         active_connector = connector or self.connector
         batch_size = self.classification_workers * 8
         pending: list[tuple[SourceItem, PreparedDocument]] = []
         try:
             for source_item in active_connector.fetch():
                 self._counts["acquired"] += 1
+                if self.erasure_filter is not None and self.erasure_filter.is_suppressed(
+                    source_item.source, source_item.author
+                ):
+                    self._counts["suppressed"] += 1
+                    continue
                 prepared_document = self.preprocessing_service.prepare(source_item)
                 if self._is_already_classified(source_item, prepared_document):
                     self._counts["skipped"] += 1
@@ -107,6 +119,7 @@ class Pipeline:
             classification_error_count=self._counts["errors"],
             skipped_count=self._counts["skipped"],
             gated_out_count=self._counts["gated_out"],
+            suppressed_count=self._counts["suppressed"],
             llm_call_count=self._counts["llm_calls"],
         )
         return accepted_documents

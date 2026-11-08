@@ -86,7 +86,7 @@ def _api_cors_origins() -> tuple[str, ...]:
         origin.strip()
         for origin in os.getenv(
             "API_CORS_ORIGINS",
-            "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8501",
+            "http://localhost:3000,http://127.0.0.1:3000",
         ).split(",")
         if origin.strip()
     )
@@ -134,6 +134,19 @@ class Settings:
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
     llm_api_key: str | None = os.getenv("LLM_API_KEY") or None
     llm_model: str | None = os.getenv("LLM_MODEL") or None
+    llm_input_usd_per_mtok: float | None = (
+        float(os.environ["LLM_INPUT_USD_PER_MTOK"]) if os.getenv("LLM_INPUT_USD_PER_MTOK") else None
+    )
+    llm_output_usd_per_mtok: float | None = (
+        float(os.environ["LLM_OUTPUT_USD_PER_MTOK"]) if os.getenv("LLM_OUTPUT_USD_PER_MTOK") else None
+    )
+    llm_usage_tracking: bool = _boolean_setting("LLM_USAGE_TRACKING", True)
+    retention_non_signal_days: int = _positive_integer_setting("RETENTION_NON_SIGNAL_DAYS", 30)
+    retention_signal_days: int = _positive_integer_setting("RETENTION_SIGNAL_DAYS", 365)
+    ingestion_stale_after_seconds: int = _positive_integer_setting(
+        "INGESTION_STALE_AFTER_SECONDS", 21600
+    )
+    privacy_contact_email: str | None = os.getenv("PRIVACY_CONTACT_EMAIL") or None
     labeling_backend: str = os.getenv("LABELING_BACKEND", "keywords").strip().lower()
     classification_batch_size: int = _positive_integer_setting("CLASSIFICATION_BATCH_SIZE", 1)
     poll_interval_seconds: int = _positive_integer_setting("POLL_INTERVAL_SECONDS", 600)
@@ -152,6 +165,9 @@ class Settings:
     api_port: int = int(os.getenv("API_PORT", "8000"))
     api_cors_origins: tuple[str, ...] = _api_cors_origins()
     api_key: str | None = os.getenv("UNMEET_API_KEY") or None
+    rate_limit_read_per_minute: int = int(os.getenv("RATE_LIMIT_READ_PER_MINUTE", "120"))
+    rate_limit_write_per_minute: int = int(os.getenv("RATE_LIMIT_WRITE_PER_MINUTE", "30"))
+    trust_proxy_headers: bool = _boolean_setting("TRUST_PROXY_HEADERS", False)
 
 
 settings = Settings()

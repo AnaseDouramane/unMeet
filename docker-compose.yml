@@ -11,6 +11,51 @@ services:
     volumes:
       - unmeet_pgdata:/var/lib/postgresql/data
       - ./scripts/enable_pgvector.sql:/docker-entrypoint-initdb.d/01-enable-pgvector.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d unmeet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # `docker compose --profile app up --build` runs the API and the polling worker locally.
+  migrate:
+    profiles: ["app"]
+    build: .
+    command: ["python", "-m", "scripts.init_db"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/unmeet
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    profiles: ["app"]
+    build: .
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/unmeet
+      API_HOST: 0.0.0.0
+      UNMEET_ENV: development
+      LOG_FORMAT: text
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    profiles: ["app"]
+    build: .
+    command: ["python", "-m", "scripts.run_worker"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/unmeet
+      UNMEET_ENV: development
+      LOG_FORMAT: text
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   unmeet_pgdata:

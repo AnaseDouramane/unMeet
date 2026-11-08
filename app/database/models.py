@@ -245,3 +245,50 @@ class SourceCursorModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class AuditLogModel(Base):
+    """Append-only record of a write: who (a hashed API-key id or IP), what, to which resource."""
+
+    __tablename__ = "audit_log"
+    __table_args__ = (Index("ix_audit_log_created_at", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class LlmUsageModel(Base):
+    """Tokens and estimated cost of one LLM call (cost is NULL when no prices are configured)."""
+
+    __tablename__ = "llm_usage"
+    __table_args__ = (Index("ix_llm_usage_created_at", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class ErasureRequestModel(Base):
+    """An author who asked to be forgotten; kept as a hash so we never re-ingest their posts."""
+
+    __tablename__ = "erasure_requests"
+
+    source: Mapped[str] = mapped_column(String(50), primary_key=True)
+    author_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

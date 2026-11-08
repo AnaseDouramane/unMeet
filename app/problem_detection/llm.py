@@ -30,6 +30,7 @@ from app.llm.client import (
     ChatCompletionsClient,
     LLMRequestError,
     LLMResponseError,
+    LLMUsage,
     parse_json_object,
 )
 from app.problem_detection.schemas import (
@@ -162,6 +163,7 @@ class OpenAICompatibleSignalClassifier:
         use_json_schema: bool = True,
         session: requests.Session | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        usage_sink: Callable[[LLMUsage], None] | None = None,
     ) -> None:
         if max_document_chars <= 0:
             raise ValueError("max_document_chars must be positive")
@@ -175,6 +177,8 @@ class OpenAICompatibleSignalClassifier:
             max_retries=max_retries,
             session=session,
             sleep=sleep,
+            usage_sink=usage_sink,
+            purpose="classification",
         )
         self.model = self._client.model
         self.base_url = self._client.base_url
@@ -214,6 +218,10 @@ class OpenAICompatibleSignalClassifier:
     @property
     def request_count(self) -> int:
         return self._client.request_count
+
+    @property
+    def token_usage(self) -> tuple[int, int]:
+        return self._client.token_usage
 
     def classify_batch(
         self,

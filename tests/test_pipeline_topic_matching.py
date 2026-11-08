@@ -189,3 +189,32 @@ def test_malformed_batch_entry_retry_keeps_topics() -> None:
 def test_result_dataclass_is_replaceable_with_matches() -> None:
     base = ProblemDetectionResult(True, 0.5, "r", "c")
     assert replace(base, topic_matches=(TopicMatch(1, "x"),)).topic_matches[0].reason == "x"
+
+
+def test_pipeline_skips_authors_who_asked_to_be_forgotten() -> None:
+    from app.privacy.service import ErasureFilter
+
+    class Privacy:
+        def suppressed_authors(self, source):
+            from app.privacy.service import author_key
+
+            return frozenset({author_key("a")}) if source == "hackernews" else frozenset()
+
+    classifier = TopicAwareClassifier()
+    embedder = AxisEmbedder()
+    repo = Repo()
+    pipeline = Pipeline(
+        settings=type("S", (), {"environment": "test"})(),
+        connector=Connector(["crm one", "crm two"]),
+        preprocessing_service=PreprocessingService(),
+        repository=repo,
+        embedding_service=embedder,
+        problem_detection_service=ProblemDetectionService(classifier),
+        erasure_filter=ErasureFilter(Privacy()),
+    )
+    pipeline.run()
+
+    assert repo.results == {}  # every item is by author "a"
+    assert classifier.single_calls == []
+    stats = pipeline.last_run_stats
+    assert stats is not None and stats.suppressed_count == 2 and stats.acquired_count == 2

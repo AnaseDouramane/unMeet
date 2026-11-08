@@ -232,3 +232,16 @@ def test_find_signals_since_processing_time(session_factory: sessionmaker[Sessio
     )
 
     assert [s.external_id for s in signals] == ["new"]
+
+
+def test_latest_processed_by_source(session_factory: sessionmaker[Session]) -> None:
+    repository = SourceItemRepository(session_factory)
+    assert repository.latest_processed_by_source() == ()
+    _save_signal(repository, "a1", axis=1, source="reddit")
+    _save_signal(repository, "a2", axis=2, source="reddit")
+    _save_signal(repository, "b1", axis=3, source="hackernews")
+
+    rows = repository.latest_processed_by_source()
+
+    assert [(source, count) for source, _, count in rows] == [("hackernews", 1), ("reddit", 2)]
+    assert all(moment.tzinfo is not None for _, moment, _ in rows)
