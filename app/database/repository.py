@@ -727,6 +727,7 @@ class ClusterRepository:
                     SourceItemModel.author,
                     SourceItemModel.published_at,
                     SourceItemModel.problem_confidence,
+                    SourceItemModel.pain_quote,
                 )
                 .join(
                     cluster_source_items,
@@ -747,6 +748,7 @@ class ClusterRepository:
                     author=author,
                     published_at=published_at,
                     problem_confidence=problem_confidence,
+                    pain_quote=pain_quote,
                 )
                 for (
                     id,
@@ -758,6 +760,7 @@ class ClusterRepository:
                     author,
                     published_at,
                     problem_confidence,
+                    pain_quote,
                 ) in session.execute(statement)
             )
         finally:

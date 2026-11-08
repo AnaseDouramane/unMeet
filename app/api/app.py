@@ -19,11 +19,13 @@ from app.api.routes import (
     audit,
     channels,
     clusters,
+    demo,
     health,
     inbox,
     onboarding,
     opportunities,
     privacy,
+    reports,
     search,
     signals,
     topics,
@@ -45,6 +47,7 @@ def create_app(
     app = FastAPI(title=api_settings.api_title, version=api_settings.api_version)
     app.state.settings = api_settings
     app.state.onboarding_limiter = SlidingWindowRateLimiter(window_seconds=3600)
+    app.state.demo_limiter = SlidingWindowRateLimiter(window_seconds=3600)
     app.state.dependencies = dependencies or build_default_dependencies(api_settings)
     app.add_middleware(
         ApiMiddleware,
@@ -88,6 +91,8 @@ def create_app(
     app.include_router(inbox.router)
     app.include_router(onboarding.router)
     app.include_router(channels.router)
+    app.include_router(reports.router)
+    app.include_router(demo.router)
     return app
 
 

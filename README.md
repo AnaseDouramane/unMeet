@@ -59,7 +59,7 @@ python -m scripts.deliver_alerts  # push new signals of tracked topics to their 
 python -m scripts.run_worker      # or: keep polling every source every 10 minutes (cursors, backoff)
 ```
 
-Multi-tenant accounts, roles, plans and login are described in [docs/SAAS.md](docs/SAAS.md).
+Multi-tenant accounts, roles, plans and login are described in [docs/SAAS.md](docs/SAAS.md); the launch plan is in [docs/LAUNCH.md](docs/LAUNCH.md).
 
 API and UI:
 
@@ -100,6 +100,8 @@ Re-run only clustering, labeling and trends on stored data with `python -m scrip
 | `GET /api/v1/inbox`, `/inbox/counts`, `POST /inbox/state`, `POST /inbox/{id}/reply-draft` | the workspace inbox: triage states, reply drafts |
 | `POST /api/v1/onboarding/analyze`, `/onboarding/confirm` | propose topics from a URL, then create them |
 | `GET /api/v1/workspace`, `/workspace/members`, `/workspace/api-keys`, `/workspace/channels`, `/workspace/usage` | team, keys, digests and AI usage (managers) |
+| `GET /api/v1/reports`, `/reports/{id}`, `/reports/{id}.md` | public pain reports built from clusters (no author names) |
+| `POST /api/v1/demo` | public landing-page demo, off unless `DEMO_ENABLED=true`, rate limited and cached |
 | `GET /api/v1/search` | semantic search over problems |
 | `GET /health`, `GET /health/ingestion` | liveness; 503 when a source with data went quiet |
 | `GET /api/v1/audit`, `GET /api/v1/usage/llm` | audit trail of writes; LLM tokens and cost (API key) |

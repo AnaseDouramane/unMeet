@@ -274,3 +274,41 @@ export interface ConfirmResult {
   created: Topic[];
   skipped: { name: string; reason: string }[];
 }
+
+export interface DemoSignal {
+  source: string;
+  title: string;
+  url: string;
+  published_at: string;
+  quote: string | null;
+  intent: string | null;
+  similarity: number | null;
+}
+
+export interface DemoResult {
+  product_summary: string;
+  competitors: string[];
+  topics: string[];
+  signals: DemoSignal[];
+}
+
+export interface ReportSummary {
+  cluster_id: number;
+  title: string;
+  status: TrendStatus;
+  growth_rate: number | null;
+  document_count: number;
+  source_count: number;
+}
+
+export interface ReportQuote {
+  source: string;
+  title: string;
+  url: string;
+  published_at: string;
+  text: string;
+}
+
+export interface Report extends ReportSummary {
+  quotes: ReportQuote[];
+}

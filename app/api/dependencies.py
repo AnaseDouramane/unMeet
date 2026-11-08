@@ -22,6 +22,7 @@ from app.auth.jwt import JwtVerifier, TokenVerifier
 from app.config import Settings
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.delivery.repository import ChannelRepository, ChannelStore, InMemoryChannelStore
+from app.demo.service import DemoService
 from app.embeddings.embedding_service import EmbeddingService
 from app.errors import DatabaseUnavailableError
 from app.inbox.repository import InboxRepository, InboxStore
@@ -54,6 +55,7 @@ class PublicDocument:
     author: str | None
     published_at: datetime
     problem_confidence: float
+    pain_quote: str | None = None
 
 
 @dataclass(frozen=True)
@@ -192,6 +194,7 @@ class RepositoryAnalyticsReadFacade:
                     author=document.author,
                     published_at=document.published_at,
                     problem_confidence=document.problem_confidence or 0.0,
+                    pain_quote=getattr(document, "pain_quote", None),
                 )
                 for document in documents
             ),
@@ -313,13 +316,14 @@ class ApiDependencies:
     inbox: InboxStore = field(default_factory=EmptyInbox)
     channels: ChannelStore = field(default_factory=InMemoryChannelStore)
     onboarding: OnboardingService | None = None
+    demo: DemoService | None = None
     reply_assistant: ReplyAssistant | None = None
     token_verifier: TokenVerifier | None = None
 
 
 def build_default_dependencies(settings: Settings) -> ApiDependencies:
     embedding_service = EmbeddingService(settings.embedding_model)
-    onboarding = reply_assistant = None
+    onboarding = reply_assistant = demo = None
     if settings.llm_model:
         usage = LlmUsageRepository(
             input_usd_per_mtok=settings.llm_input_usd_per_mtok,
@@ -337,6 +341,11 @@ def build_default_dependencies(settings: Settings) -> ApiDependencies:
             )
 
         onboarding = OnboardingService(client("onboarding"), SafeFetcher())
+        demo = DemoService(
+            OnboardingService(client("demo"), SafeFetcher()),
+            RepositorySignalReader(embedding_service, SourceItemRepository()),
+            daily_limit=settings.demo_daily_limit,
+        )
         reply_assistant = ReplyAssistant(client("reply_draft"))
     return ApiDependencies(
         analytics_reader=RepositoryAnalyticsReadFacade(
@@ -354,6 +363,7 @@ def build_default_dependencies(settings: Settings) -> ApiDependencies:
         inbox=InboxRepository(),
         channels=ChannelRepository(),
         onboarding=onboarding,
+        demo=demo,
         reply_assistant=reply_assistant,
         token_verifier=build_token_verifier(settings),
     )
