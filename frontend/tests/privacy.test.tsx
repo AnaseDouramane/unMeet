@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 async function renderPage() {
   vi.resetModules();
-  const { default: PrivacyPage } = await import("@/app/privacy/page");
+  const { default: PrivacyPage } = await import("@/app/(marketing)/privacy/page");
   render(<PrivacyPage />);
 }
 

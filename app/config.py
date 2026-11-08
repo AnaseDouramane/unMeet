@@ -157,6 +157,11 @@ class Settings:
     smtp_password: str | None = os.getenv("SMTP_PASSWORD") or None
     smtp_from: str | None = os.getenv("SMTP_FROM") or None
     smtp_starttls: bool = _boolean_setting("SMTP_STARTTLS", True)
+    report_min_documents: int = _positive_integer_setting("REPORT_MIN_DOCUMENTS", 5)
+    public_site_url: str | None = os.getenv("PUBLIC_SITE_URL") or None
+    demo_enabled: bool = _boolean_setting("DEMO_ENABLED", False)
+    demo_per_visitor_per_hour: int = _positive_integer_setting("DEMO_PER_VISITOR_PER_HOUR", 3)
+    demo_daily_limit: int = _positive_integer_setting("DEMO_DAILY_LIMIT", 100)
     labeling_backend: str = os.getenv("LABELING_BACKEND", "keywords").strip().lower()
     classification_batch_size: int = _positive_integer_setting("CLASSIFICATION_BATCH_SIZE", 1)
     poll_interval_seconds: int = _positive_integer_setting("POLL_INTERVAL_SECONDS", 600)

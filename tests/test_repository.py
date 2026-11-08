@@ -413,6 +413,7 @@ def test_cluster_repository_reads_only_associated_documents_in_deterministic_ord
                     newest.author,
                     newest.published_at,
                     newest.problem_confidence,
+                    "I spend hours deduping",
                 ),
                 (
                     oldest.id,
@@ -424,6 +425,7 @@ def test_cluster_repository_reads_only_associated_documents_in_deterministic_ord
                     oldest.author,
                     oldest.published_at,
                     oldest.problem_confidence,
+                    None,
                 ),
             ]
         ]
@@ -435,6 +437,7 @@ def test_cluster_repository_reads_only_associated_documents_in_deterministic_ord
 
     assert [document.id for document in documents] == [2, 1]
     assert documents[0].external_id == "2"
+    assert (documents[0].pain_quote, documents[1].pain_quote) == ("I spend hours deduping", None)
     assert not hasattr(documents[0], "raw_payload")
     assert not hasattr(documents[0], "embedding")
     compiled_sql = str(session.execute_statements[0].compile(dialect=postgresql.dialect()))
@@ -442,6 +445,7 @@ def test_cluster_repository_reads_only_associated_documents_in_deterministic_ord
     assert "ORDER BY source_items.published_at DESC, source_items.id ASC" in compiled_sql
     assert "raw_payload" not in compiled_sql
     assert "embedding" not in compiled_sql
+    assert "source_items.pain_quote" in compiled_sql
 
 
 def test_cluster_repository_returns_latest_compatible_run_as_a_dto() -> None:

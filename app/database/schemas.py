@@ -65,6 +65,7 @@ class PersistedClusterDocument:
     author: str | None
     published_at: datetime
     problem_confidence: float | None
+    pain_quote: str | None = None
 
 
 @dataclass(frozen=True)

@@ -18,6 +18,9 @@ import type {
   ChannelInfo,
   ChannelInput,
   ConfirmResult,
+  DemoResult,
+  Report,
+  ReportSummary,
   InboxCounts,
   InboxListResponse,
   InboxState,
@@ -167,6 +170,13 @@ export const api = {
     }),
   getReplyDraft: (signalId: number) =>
     request<ReplyDraft>(`/api/v1/inbox/${signalId}/reply-draft`, undefined, { method: "POST" }),
+
+  // Public
+  runDemo: (url: string) =>
+    request<DemoResult>("/api/v1/demo", undefined, { method: "POST", body: { url } }),
+  getReports: () => request<{ items: ReportSummary[] }>("/api/v1/reports"),
+  getReport: (clusterId: string | number) => request<Report>(`/api/v1/reports/${clusterId}`),
+  reportMarkdownUrl: (clusterId: string | number) => buildUrl(`/api/v1/reports/${clusterId}.md`).toString(),
 
   // Onboarding
   analyzeSite: (url: string) =>
