@@ -100,6 +100,11 @@ class Settings:
         "postgresql+psycopg://postgres:postgres@localhost:5432/unmeet",
     )
     stackexchange_site: str = os.getenv("STACKEXCHANGE_SITE", "stackoverflow")
+    stackexchange_queries: tuple[str, ...] = tuple(
+        query.strip() for query in os.getenv("STACKEXCHANGE_QUERIES", "").split(";") if query.strip()
+    )
+    stackexchange_key: str | None = os.getenv("STACKEXCHANGE_KEY") or None
+    stackexchange_limit: int = _positive_integer_setting("STACKEXCHANGE_LIMIT", 200)
     reddit_client_id: str | None = os.getenv("REDDIT_CLIENT_ID")
     reddit_client_secret: str | None = os.getenv("REDDIT_CLIENT_SECRET")
     reddit_user_agent: str = os.getenv("REDDIT_USER_AGENT", "unMeet/0.1")
