@@ -36,7 +36,7 @@ class StackExchangeError(RuntimeError):
 
 
 class _Session(Protocol):
-    def get(self, url: str, params: dict[str, Any], timeout: float) -> Any: ...
+    def get(self, url: str, *, params: dict[str, Any], timeout: float) -> Any: ...
 
 
 class StackExchangeConnector(SourceConnector):
