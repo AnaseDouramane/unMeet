@@ -6,7 +6,9 @@ from app.config import Settings
 from app.ingestion.base import SourceConnector
 from app.ingestion.github import GitHubIssuesConnector
 from app.ingestion.hackernews import HackerNewsConnector
+from app.ingestion.hackernews_search import HackerNewsSearchConnector, SearchSpec
 from app.ingestion.reddit import RedditConnector
+from app.ingestion.stackexchange import StackExchangeConnector
 
 
 def build_configured_connectors(settings: Settings) -> tuple[SourceConnector, ...]:
@@ -25,6 +27,23 @@ def build_configured_connectors(settings: Settings) -> tuple[SourceConnector, ..
                     ),
                 )
             )
+        elif source == "hackernews_search":
+            connectors.append(
+                HackerNewsSearchConnector(
+                    searches=parse_search_specs(settings.hackernews_searches),
+                    limit=settings.hackernews_search_limit,
+                    lookback_seconds=settings.hackernews_search_lookback_seconds,
+                )
+            )
+        elif source == "stackexchange":
+            connectors.append(
+                StackExchangeConnector(
+                    site=settings.stackexchange_site,
+                    queries=settings.stackexchange_queries or (None,),
+                    limit=settings.stackexchange_limit,
+                    key=settings.stackexchange_key,
+                )
+            )
         elif source == "reddit":
             connectors.append(RedditConnector.from_settings(settings))
         elif source == "github":
@@ -34,6 +53,15 @@ def build_configured_connectors(settings: Settings) -> tuple[SourceConnector, ..
     if not connectors:
         raise ValueError("At least one ingestion source must be enabled")
     return tuple(connectors)
+
+
+def parse_search_specs(raw_specs: Sequence[str]) -> tuple[SearchSpec, ...]:
+    """Turn ``tag`` or ``tag:query`` strings into searches."""
+    specs: list[SearchSpec] = []
+    for raw in raw_specs:
+        tag, _, query = raw.partition(":")
+        specs.append(SearchSpec(tag=tag.strip().lower(), query=query.strip() or None))
+    return tuple(specs)
 
 
 def normalize_enabled_sources(sources: Sequence[str]) -> tuple[str, ...]:

@@ -233,3 +233,15 @@ class SignalTopicMatchModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class SourceCursorModel(Base):
+    """High-water mark of what a connector already ingested (for example per subreddit)."""
+
+    __tablename__ = "source_cursors"
+
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

@@ -34,6 +34,15 @@ def _enabled_sources() -> tuple[str, ...]:
     )
 
 
+def _hackernews_searches() -> tuple[str, ...]:
+    """Raw ``tag`` or ``tag:query`` specs separated by ``;`` (parsed by the connector factory)."""
+    return tuple(
+        spec.strip()
+        for spec in os.getenv("HACKERNEWS_SEARCHES", "ask_hn").split(";")
+        if spec.strip()
+    )
+
+
 def _hackernews_feeds() -> tuple[str, ...]:
     normalized_feeds: list[str] = []
     seen_feeds: set[str] = set()
@@ -91,6 +100,11 @@ class Settings:
         "postgresql+psycopg://postgres:postgres@localhost:5432/unmeet",
     )
     stackexchange_site: str = os.getenv("STACKEXCHANGE_SITE", "stackoverflow")
+    stackexchange_queries: tuple[str, ...] = tuple(
+        query.strip() for query in os.getenv("STACKEXCHANGE_QUERIES", "").split(";") if query.strip()
+    )
+    stackexchange_key: str | None = os.getenv("STACKEXCHANGE_KEY") or None
+    stackexchange_limit: int = _positive_integer_setting("STACKEXCHANGE_LIMIT", 200)
     reddit_client_id: str | None = os.getenv("REDDIT_CLIENT_ID")
     reddit_client_secret: str | None = os.getenv("REDDIT_CLIENT_SECRET")
     reddit_user_agent: str = os.getenv("REDDIT_USER_AGENT", "unMeet/0.1")
@@ -100,6 +114,11 @@ class Settings:
     hackernews_feeds: tuple[str, ...] = _hackernews_feeds()
     hackernews_limit: int = _positive_integer_setting("HACKERNEWS_LIMIT", 500)
     hackernews_max_workers: int = _positive_integer_setting("HACKERNEWS_MAX_WORKERS", 16)
+    hackernews_searches: tuple[str, ...] = _hackernews_searches()
+    hackernews_search_limit: int = _positive_integer_setting("HACKERNEWS_SEARCH_LIMIT", 300)
+    hackernews_search_lookback_seconds: int = _positive_integer_setting(
+        "HACKERNEWS_SEARCH_LOOKBACK_SECONDS", 3600
+    )
     hackernews_include_comments: bool = _boolean_setting("HACKERNEWS_INCLUDE_COMMENTS", True)
     hackernews_max_comments_per_story: int = _positive_integer_setting(
         "HACKERNEWS_MAX_COMMENTS_PER_STORY", 20
@@ -117,6 +136,9 @@ class Settings:
     llm_model: str | None = os.getenv("LLM_MODEL") or None
     labeling_backend: str = os.getenv("LABELING_BACKEND", "keywords").strip().lower()
     classification_batch_size: int = _positive_integer_setting("CLASSIFICATION_BATCH_SIZE", 1)
+    poll_interval_seconds: int = _positive_integer_setting("POLL_INTERVAL_SECONDS", 600)
+    poll_max_backoff_seconds: int = _positive_integer_setting("POLL_MAX_BACKOFF_SECONDS", 3600)
+    poll_stall_after_seconds: int = _positive_integer_setting("POLL_STALL_AFTER_SECONDS", 10800)
     topic_gate_enabled: bool = _boolean_setting("TOPIC_GATE_ENABLED", True)
     classification_workers: int = _positive_integer_setting("CLASSIFICATION_WORKERS", 8)
     llm_use_json_schema: bool = _boolean_setting("LLM_USE_JSON_SCHEMA", True)

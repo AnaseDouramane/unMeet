@@ -56,6 +56,7 @@ python -m pip install -r requirements-dev.txt
 python -m scripts.init_db       # applies Alembic migrations
 python -m scripts.run_unmeet    # ingest → classify → embed → cluster → trends
 python -m scripts.deliver_alerts  # push new signals of tracked topics to their webhooks
+python -m scripts.run_worker      # or: keep polling every source every 10 minutes (cursors, backoff)
 ```
 
 API and UI:
@@ -71,13 +72,16 @@ Re-run only clustering, labeling and trends on stored data with `python -m scrip
 
 | Variable | Purpose |
 |----------|---------|
-| `INGESTION_SOURCES` | `hackernews,reddit,github` in execution order |
+| `INGESTION_SOURCES` | `hackernews,hackernews_search,stackexchange,reddit,github` in execution order |
+| `STACKEXCHANGE_SITE`, `STACKEXCHANGE_QUERIES`, `STACKEXCHANGE_KEY` | for `stackexchange`: site slug, `;`-separated keyword queries (empty = all new questions), optional API key for a higher quota |
+| `HACKERNEWS_SEARCHES` | for `hackernews_search`: `tag` or `tag:query` specs separated by `;` (tags: comment, story, ask_hn, show_hn) |
 | `HACKERNEWS_FEEDS`, `HACKERNEWS_INCLUDE_COMMENTS` | feeds to read; comments carry most pain points |
 | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_SUBREDDITS` | Reddit OAuth app (required for anything beyond local tests) |
 | `CLASSIFIER_BACKEND` | `llm` (signals) or `qwen3` (local, binary) |
 | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | any OpenAI-compatible endpoint |
 | `CLASSIFICATION_WORKERS` | concurrent classification requests |
 | `CLASSIFICATION_BATCH_SIZE` | texts per LLM request (default 1); invalid batch entries are retried one by one |
+| `POLL_INTERVAL_SECONDS`, `POLL_MAX_BACKOFF_SECONDS`, `POLL_STALL_AFTER_SECONDS` | `scripts.run_worker` polling interval, failure backoff cap, and the silence after which a source is logged as stalled |
 | `TOPIC_GATE_ENABLED` | embed first; call the LLM only for items near an active topic (default on; no topics = no filtering) |
 | `LABELING_BACKEND` | `llm` problem statements or `keywords` (TF-IDF) |
 | `UNMEET_API_KEY` | required for write endpoints outside development |

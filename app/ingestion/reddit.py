@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -10,6 +10,7 @@ import requests
 
 from app.config import Settings
 from app.ingestion.base import SourceConnector
+from app.ingestion.cursors import CursorStore
 from app.ingestion.schemas import SourceItem
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,28 @@ class RedditConnector(SourceConnector):
             client_id=client_id,
             client_secret=client_secret,
         )
+        self._cursors: dict[str, float] = {}
+        self._pending: dict[str, float] = {}
+
+    @staticmethod
+    def _cursor_key(subreddit: str) -> str:
+        return f"reddit:{subreddit.lower()}"
+
+    def load_cursors(self, store: CursorStore) -> None:
+        """Read the newest post time already ingested for each subreddit."""
+        self._cursors = {}
+        self._pending = {}
+        for subreddit in self.subreddits:
+            raw = store.get(self._cursor_key(subreddit))
+            try:
+                if raw is not None:
+                    self._cursors[subreddit] = float(raw)
+            except ValueError:
+                logger.warning("Ignoring invalid cursor %r for r/%s", raw, subreddit)
+
+    def pending_cursors(self) -> Mapping[str, str]:
+        """Cursors reached by the last fetch; commit them once the items were persisted."""
+        return {self._cursor_key(sub): repr(value) for sub, value in self._pending.items()}
 
     @classmethod
     def from_settings(
@@ -165,15 +188,38 @@ class RedditConnector(SourceConnector):
         for subreddit in self.subreddits:
             if yielded >= self.limit:
                 return
-            posts = self._client.fetch_posts(subreddit, self.sort, self.limit - yielded)
+            cursor = self._cursors.get(subreddit)
+            newest = cursor
+            requested = self.limit - yielded
+            posts = self._client.fetch_posts(subreddit, self.sort, requested)
+            truncated = False
+            reached_seen = cursor is None
             for post in posts:
-                if yielded >= self.limit:
-                    return
                 source_item = self._to_source_item(post)
                 if source_item is None:
                     continue
+                created = source_item.published_at.timestamp()
+                if cursor is not None and created <= cursor:
+                    reached_seen = True
+                    continue  # already ingested by an earlier poll
+                if yielded >= self.limit:
+                    truncated = True
+                    break
+                if newest is None or created > newest:
+                    newest = created
                 yielded += 1
                 yield source_item
+            if truncated:
+                # Posts are newest first: advancing past the unread older ones would lose them.
+                logger.warning("r/%s: limit reached, cursor not advanced", subreddit)
+            elif newest is not None and newest != cursor:
+                if not reached_seen and len(posts) >= requested:
+                    logger.warning(
+                        "r/%s: every fetched post is newer than the cursor; posts between "
+                        "polls may have been missed (raise REDDIT_LIMIT or poll more often)",
+                        subreddit,
+                    )
+                self._pending[subreddit] = newest
 
     @staticmethod
     def _to_source_item(post: dict[str, Any]) -> SourceItem | None:
