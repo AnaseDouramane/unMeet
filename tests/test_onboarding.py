@@ -149,3 +149,40 @@ def test_validation_rules() -> None:
     assert len(validate_proposal(good_payload(topics=many), "u").topics) == 5
     long = validate_proposal(good_payload(product_summary="s" * 900, icp=None), "u")
     assert len(long.product_summary) == 400 and long.icp == ""
+
+
+def test_search_phrases_are_cleaned_deduplicated_and_capped() -> None:
+    payload = good_payload(
+        topics=[
+            {
+                "name": "CRM duplicates",
+                "description": "People with duplicate contacts",
+                "keywords": [
+                    '"Looking for a tool to find leads."',
+                    "looking for a tool to find leads",  # duplicate after cleaning
+                    "  Alternative to HubSpot!  ",
+                    "ab",  # too short to be a useful phrase
+                    5,
+                    "k1",
+                    "k2 words",
+                    "k3 words",
+                    "k4 words",
+                    "k5 words",
+                    "k6 words",
+                ],
+            },
+            {"name": "No keywords", "description": "d", "keywords": "not a list"},
+        ]
+    )
+    first, second = validate_proposal(payload, "u").topics
+
+    assert first.keywords[:2] == ("looking for a tool to find leads", "alternative to hubspot")
+    assert len(first.keywords) == 6 and all('"' not in k and k == k.lower() for k in first.keywords)
+    assert second.keywords == ()
+
+
+def test_the_prompt_asks_for_real_wording_not_marketing_terms() -> None:
+    client, fetcher = Client(good_payload()), Fetcher()
+    OnboardingService(client, fetcher).analyze("https://acme.test")
+    system = " ".join(client.calls[0]["messages"][0]["content"].split())
+    assert '"keywords"' in system and "literally type" in system and "no marketing terms" in system

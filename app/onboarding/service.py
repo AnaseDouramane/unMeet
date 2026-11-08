@@ -40,7 +40,10 @@ Answer with one JSON object:
      "description": one sentence describing the conversations to find, written the way a person
         would describe the problem or request (no marketing language),
      "intents": subset of ["pain_point","feature_request","solution_search","competitor_complaint"],
-     "products": competitor or tool names a post about this topic would mention; [] if none}
+     "products": competitor or tool names a post about this topic would mention; [] if none,
+     "keywords": 3 to 6 short phrases (2 to 5 words, lowercase) that a person with this need would
+        literally type in a post or comment, for example "looking for a tool to find leads" or
+        "alternative to hubspot". Real wording only, no marketing terms, no quotes}
 }
 Topics should cover: the pain the product solves, people asking for a tool in the category, and
 complaints about the main competitors."""
@@ -58,6 +61,7 @@ class TopicProposal:
     description: str
     intents: tuple[str, ...] = ()
     products: tuple[str, ...] = ()
+    keywords: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -136,6 +140,18 @@ def _strings(value: Any, limit: int, count: int) -> tuple[str, ...]:
     return tuple(list(seen.values())[:count])
 
 
+def _keywords(value: Any) -> tuple[str, ...]:
+    """Search phrases: lowercase, 2-80 characters, no quotes, deduplicated, at most six."""
+    if not isinstance(value, list):
+        return ()
+    cleaned: list[str] = []
+    for item in value:
+        phrase = _clean(item, 80).replace('"', "").lower().strip(" .,;:!?")
+        if len(phrase) >= 3 and phrase not in cleaned:
+            cleaned.append(phrase)
+    return tuple(cleaned[:6])
+
+
 def validate_proposal(payload: dict[str, Any], source_url: str) -> OnboardingProposal:
     summary = _clean(payload.get("product_summary"), 400)
     if not summary:
@@ -151,7 +167,13 @@ def validate_proposal(payload: dict[str, Any], source_url: str) -> OnboardingPro
             continue
         intents = tuple(i for i in _strings(raw.get("intents"), 32, 4) if i in _INTENTS)
         topics.append(
-            TopicProposal(name, description, intents, _strings(raw.get("products"), 60, 6))
+            TopicProposal(
+                name,
+                description,
+                intents,
+                _strings(raw.get("products"), 60, 6),
+                _keywords(raw.get("keywords")),
+            )
         )
         if len(topics) == MAX_TOPICS:
             break

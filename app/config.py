@@ -130,7 +130,11 @@ class Settings:
     github_issues_limit: int = _positive_integer_setting("GITHUB_ISSUES_LIMIT", 100)
     github_issues_state: str = os.getenv("GITHUB_ISSUES_STATE", "open")
     github_issues_sort: str = os.getenv("GITHUB_ISSUES_SORT", "updated")
-    classifier_backend: str = os.getenv("CLASSIFIER_BACKEND", "qwen3").strip().lower()
+    # With an LLM configured the hosted classifier is the obvious choice; the local Qwen3 model
+    # is only the default when no LLM_MODEL is set (offline experiments).
+    classifier_backend: str = (
+        os.getenv("CLASSIFIER_BACKEND") or ("llm" if os.getenv("LLM_MODEL") else "qwen3")
+    ).strip().lower()
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
     llm_api_key: str | None = os.getenv("LLM_API_KEY") or None
     llm_model: str | None = os.getenv("LLM_MODEL") or None

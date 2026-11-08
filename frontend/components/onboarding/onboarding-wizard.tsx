@@ -164,6 +164,19 @@ export function OnboardingWizard() {
                 rows={2}
                 className="mt-2 w-full rounded border border-slate-300 px-2 py-1"
               />
+              <label className="mt-2 block text-xs text-slate-600">
+                Phrases we will search for (comma separated)
+                <input
+                  aria-label={`Topic ${index + 1} phrases`}
+                  value={(topic.keywords ?? []).join(", ")}
+                  onChange={(event) =>
+                    updateTopic(index, {
+                      keywords: event.target.value.split(",").map((value) => value.trim()).filter(Boolean),
+                    })
+                  }
+                  className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm"
+                />
+              </label>
               <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
                 <span>{topic.products.length ? `Mentions: ${topic.products.join(", ")}` : "No specific product"}</span>
                 <button

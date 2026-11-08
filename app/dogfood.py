@@ -25,6 +25,11 @@ DOGFOOD_TOPICS: tuple[TopicDefinition, ...] = (
         ),
         intents=("solution_search",),
         products=("F5Bot", "Syften", "Octolens", "Common Room"),
+        keywords=(
+            "looking for a tool to find leads",
+            "find customers on reddit",
+            "monitor reddit for",
+        ),
     ),
     TopicDefinition(
         name="Unhappy with keyword alerts",
@@ -34,6 +39,7 @@ DOGFOOD_TOPICS: tuple[TopicDefinition, ...] = (
         ),
         intents=("competitor_complaint", "pain_point"),
         products=("F5Bot", "Syften", "Brand24", "Mention", "Google Alerts"),
+        keywords=("keyword alerts are noisy", "alternative to f5bot", "alternative to syften"),
     ),
     TopicDefinition(
         name="Searching Reddit by hand for customers",
@@ -42,6 +48,11 @@ DOGFOOD_TOPICS: tuple[TopicDefinition, ...] = (
             "people who need their product"
         ),
         intents=("pain_point",),
+        keywords=(
+            "searching reddit manually",
+            "find my first customers",
+            "where do you find customers",
+        ),
     ),
     TopicDefinition(
         name="Affordable intent data for small teams",
@@ -51,6 +62,11 @@ DOGFOOD_TOPICS: tuple[TopicDefinition, ...] = (
         ),
         intents=("solution_search", "competitor_complaint"),
         products=("Common Room", "Bombora", "6sense"),
+        keywords=(
+            "intent data for startups",
+            "affordable intent data",
+            "alternative to common room",
+        ),
     ),
 )
 

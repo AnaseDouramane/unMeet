@@ -19,6 +19,7 @@ def test_topics_round_trip_and_names_are_unique_per_workspace(
             description="duplicate or stale contacts in the CRM",
             intents=("competitor_complaint", "solution_search"),
             products=("HubSpot", "Salesforce"),
+            keywords=("merge duplicate contacts", "hubspot dedupe"),
             min_severity=2,
             webhook_url="https://api.clay.com/v3/sources/webhook/abc",
         ),
@@ -26,6 +27,7 @@ def test_topics_round_trip_and_names_are_unique_per_workspace(
     )
 
     assert created.id > 0 and created.workspace_id == workspace_id
+    assert created.keywords == ("merge duplicate contacts", "hubspot dedupe")
     assert created.created_at is not None
     assert repository.get(created.id) == created
     assert repository.list() == (created,)

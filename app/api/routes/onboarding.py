@@ -30,6 +30,7 @@ class TopicProposalModel(BaseModel):
     description: str = Field(min_length=1, max_length=500)
     intents: list[str] = []
     products: list[str] = []
+    keywords: list[str] = Field(default_factory=list, max_length=10)
 
 
 class ProposalResponse(BaseModel):
@@ -101,6 +102,7 @@ def analyze(
                 description=t.description,
                 intents=list(t.intents),
                 products=list(t.products),
+                keywords=list(t.keywords),
             )
             for t in proposal.topics
         ],
@@ -128,6 +130,7 @@ def confirm(
                 description=proposal.description,
                 intents=tuple(proposal.intents),
                 products=tuple(p.strip() for p in proposal.products if p.strip()),
+                keywords=tuple(k.strip() for k in proposal.keywords if k.strip()),
             )
             topic = dependencies.topic_store.create(definition, principal.workspace_id)
         except ApiError as error:

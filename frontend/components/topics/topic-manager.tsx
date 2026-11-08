@@ -38,6 +38,7 @@ export function TopicManager() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [products, setProducts] = useState("");
+  const [keywords, setKeywords] = useState("");
   const [webhook, setWebhook] = useState("");
   const [intents, setIntents] = useState<SignalIntent[]>([]);
 
@@ -71,6 +72,7 @@ export function TopicManager() {
       description: description.trim() || undefined,
       intents,
       products: products.split(",").map((value) => value.trim()).filter(Boolean),
+      keywords: keywords.split(",").map((value) => value.trim()).filter(Boolean),
       webhook_url: webhook.trim() || undefined,
     };
     if (!input.name) {
@@ -84,6 +86,7 @@ export function TopicManager() {
       setName("");
       setDescription("");
       setProducts("");
+      setKeywords("");
       setWebhook("");
       setIntents([]);
       await load();
@@ -132,7 +135,7 @@ export function TopicManager() {
                   </button>
                 </div>
                 <p className="mt-3 text-xs text-slate-500">
-                  {[...topic.intents, ...topic.products].join(" · ") || "Semantic match only"}
+                  {[...topic.intents, ...topic.products].join(" · ") || "Semantic match only"}{topic.keywords && topic.keywords.length > 0 ? ` · searches: ${topic.keywords.join(", ")}` : ""}
                   {topic.has_webhook && ` · webhook · last sent ${formatDate(topic.last_delivered_at)}`}
                 </p>
               </li>
@@ -159,6 +162,11 @@ export function TopicManager() {
         <label className="grid gap-1 text-sm font-medium">
           Products (comma separated)
           <input value={products} onChange={(e) => setProducts(e.target.value)} placeholder="HubSpot, Salesforce" className="rounded-lg border border-slate-300 px-3 py-2 font-normal" />
+        </label>
+        <label className="grid gap-1 text-sm font-medium">
+          Phrases to search for (comma separated)
+          <input value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="looking for a tool to find leads, alternative to hubspot" className="rounded-lg border border-slate-300 px-3 py-2 font-normal" />
+          <span className="text-xs font-normal text-slate-500">Exact wording people use. These decide what is fetched from the sources.</span>
         </label>
         <fieldset className="grid gap-1 text-sm">
           <legend className="font-medium">Intents</legend>

@@ -386,3 +386,33 @@ def test_workspace_usage_reports_month_to_date_against_the_budget() -> None:
     client, _, admin, *_ = build(usage=FakeUsage(cost=None))
     assert client.get("/api/v1/workspace/usage", headers=admin).json()["spent_usd"] is None
     assert client.get("/api/v1/workspace/usage").status_code == 401
+
+
+def test_confirm_stores_the_keywords_and_the_topic_api_returns_them() -> None:
+    client, deps, admin, workspace, *_ = build()
+    body = {
+        "topics": [
+            {
+                "name": "Dupes",
+                "description": "d",
+                "keywords": ["merge duplicate contacts", " hubspot dedupe "],
+            }
+        ]
+    }
+
+    created = client.post("/api/v1/onboarding/confirm", json=body, headers=admin).json()["created"][
+        0
+    ]
+
+    assert created["keywords"] == ["merge duplicate contacts", "hubspot dedupe"]
+    assert deps.topic_store.list(workspace)[0].keywords == (
+        "merge duplicate contacts",
+        "hubspot dedupe",
+    )
+    assert (
+        client.get("/api/v1/topics", headers=admin).json()["items"][0]["keywords"]
+        == created["keywords"]
+    )
+    bad = {"topics": [{"name": "Bad", "description": "d", "keywords": ['say "hi"']}]}
+    skipped = client.post("/api/v1/onboarding/confirm", json=bad, headers=admin).json()["skipped"]
+    assert "keywords" in skipped[0]["reason"]

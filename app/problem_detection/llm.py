@@ -123,12 +123,17 @@ BATCH_JSON_SCHEMA: dict[str, Any] = {
 }
 
 TOPIC_PROMPT = """
-Some texts list tracked topics under "Candidate topics". For every candidate topic the text is
-genuinely relevant to (the author describes that problem, asks for that kind of tool, or
-criticises that product), add an entry to topic_matches with the topic's "topic_id" and a
-"reason": one sentence, at most 160 characters, saying what the author says that matches the
-topic. Do not add a topic that only shares a keyword. Use [] when no candidate topic fits or
-none is listed."""
+Some texts list tracked topics under "Candidate topics". Add a topic to topic_matches (with its
+"topic_id" and a "reason": one sentence, at most 160 characters, saying what the author says that
+matches) ONLY when the author themselves:
+- describes this problem as their own, or
+- asks for this kind of tool, service or recommendation, or
+- criticises one of the products named in the topic.
+Do NOT add a topic when: its words appear only in passing; the author announces or promotes a
+product (including their own); the author answers or advises someone else without stating a need of
+their own; the text is a general opinion, news or off-topic discussion. A topic that only shares a
+keyword is not a match. When unsure, leave it out. Use [] when no candidate topic fits or none is
+listed."""
 
 TOPIC_MATCH_SCHEMA: dict[str, Any] = {
     "type": "array",

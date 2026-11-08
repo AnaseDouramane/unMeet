@@ -209,6 +209,9 @@ class TrackedTopicModel(Base):
     intents: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     products: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     sources: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    keywords: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
     min_severity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_distance: Mapped[float] = mapped_column(Float, nullable=False, default=0.6)
     webhook_url: Mapped[str | None] = mapped_column(Text, nullable=True)

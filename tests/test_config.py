@@ -35,3 +35,26 @@ def test_process_environment_overrides_dotenv_file(tmp_path: Path) -> None:
     value = _read_setting(tmp_path, "settings.hackernews_limit", {"HACKERNEWS_LIMIT": "7"})
 
     assert value == "7"
+
+
+def test_the_hosted_classifier_is_the_default_once_an_llm_is_configured(monkeypatch) -> None:
+    import importlib
+
+    import app.config as config
+
+    def backend(**env) -> str:
+        for key in ("CLASSIFIER_BACKEND", "LLM_MODEL"):
+            monkeypatch.delenv(key, raising=False)
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        return importlib.reload(config).Settings().classifier_backend
+
+    try:
+        assert backend() == "qwen3"  # nothing configured: the local model, as before
+        assert backend(LLM_MODEL="openai/gpt-oss-120b") == "llm"
+        assert backend(LLM_MODEL="m", CLASSIFIER_BACKEND="qwen3") == "qwen3"  # explicit wins
+        assert backend(LLM_MODEL="m", CLASSIFIER_BACKEND=" LLM ") == "llm"
+    finally:
+        for key in ("CLASSIFIER_BACKEND", "LLM_MODEL"):
+            monkeypatch.delenv(key, raising=False)
+        importlib.reload(config)

@@ -32,6 +32,7 @@ describe("TopicManager", () => {
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Outbound" } });
     fireEvent.change(screen.getByLabelText("Products (comma separated)"), { target: { value: "Apollo, , Clay" } });
+    fireEvent.change(screen.getByLabelText(/Phrases to search for/), { target: { value: " find leads , alternative to apollo " } });
     fireEvent.click(screen.getByLabelText("Looking for a solution"));
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "Create topic" }));
@@ -43,6 +44,7 @@ describe("TopicManager", () => {
           description: undefined,
           intents: ["solution_search"],
           products: ["Apollo", "Clay"],
+          keywords: ["find leads", "alternative to apollo"],
           webhook_url: undefined,
         },
         "secret",
