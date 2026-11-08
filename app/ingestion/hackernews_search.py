@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 ALGOLIA_URL = "https://hn.algolia.com/api/v1/search_by_date"
 _SUPPORTED_TAGS = frozenset({"comment", "story", "ask_hn", "show_hn"})
 _MAX_HITS_PER_PAGE = 100
+_EXACT_SEARCH = {
+    "advancedSyntax": "true",
+    "typoTolerance": "false",
+    "queryType": "prefixNone",
+    "removeWordsIfNoResults": "none",
+}
 
 
 class HackerNewsSearchError(RuntimeError):
@@ -41,7 +47,11 @@ class _Session(Protocol):
 
 @dataclass(frozen=True)
 class SearchSpec:
-    """One search: a tag (what kind of item) and an optional keyword query."""
+    """One search: a tag (what kind of item) and an optional keyword query.
+
+    Queries match exact words; wrap several words in double quotes to require the phrase
+    (``"looking for a tool"``).
+    """
 
     tag: str = "comment"
     query: str | None = None
@@ -157,6 +167,9 @@ class HackerNewsSearchConnector(SourceConnector):
         }
         if spec.query:
             params["query"] = spec.query
+            # Algolia's default is fuzzy (typos, prefixes, dropped words) and returns mostly
+            # unrelated comments. Exact terms and "quoted phrases" are what this source needs.
+            params.update(_EXACT_SEARCH)
         try:
             response = self._session.get(ALGOLIA_URL, params=params, timeout=self._timeout)
             response.raise_for_status()
