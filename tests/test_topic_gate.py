@@ -213,3 +213,22 @@ def test_gated_items_are_rechecked_when_topics_change() -> None:
     pipeline.run()
     assert pipeline.last_run_stats is not None
     assert pipeline.last_run_stats.skipped_count == 0
+
+
+def test_gate_loads_each_topics_feedback_once_per_run() -> None:
+    calls: list[int] = []
+
+    def examples(topic: Topic):
+        calls.append(topic.id)
+        return [(f"example for {topic.id}", True)]
+
+    topics = [_topic(1, description="CRM data"), _topic(2, description="deploy pipeline")]
+    gate = TopicGate(lambda: topics, AxisEmbedder(), examples=examples)
+    gate.begin_run()
+    for _ in range(5):
+        gate.evaluate("our crm is a mess")
+
+    assert calls == [1, 2]
+    (context,) = gate.topic_contexts([2])
+    assert context.examples == (("example for 2", True),)
+    assert TopicGate(lambda: topics, AxisEmbedder()).topic_contexts([1]) == ()  # before begin_run

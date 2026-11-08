@@ -16,6 +16,7 @@ BILLING = TopicContext(9, "Billing", None)
 
 class Response:
     status_code = 200
+
     def __init__(self, content: Any) -> None:
         self.headers: dict[str, str] = {}
         self._payload = {"choices": [{"message": {"content": json.dumps(content)}}]}
@@ -132,3 +133,24 @@ def test_batch_without_topics_keeps_the_plain_schema() -> None:
     session = Session({"results": [{**_signal(), "index": 0}]})
     _classifier(session).classify_batch([TEXT])
     assert session.requests[0]["response_format"]["json_schema"]["schema"] == BATCH_JSON_SCHEMA
+
+
+def test_workspace_feedback_is_shown_as_examples_for_that_topic() -> None:
+    topic = TopicContext(
+        7,
+        "CRM hygiene",
+        "duplicates",
+        examples=(
+            ("We dedupe contacts by hand", True),
+            ("Hiring a CRM admin\nin Berlin", False),
+        ),
+    )
+    session = Session(_signal())
+    _classifier(session).classify(TEXT, [topic, BILLING])
+
+    user = session.requests[0]["messages"][1]["content"]
+    assert 'example the team judged relevant: "We dedupe contacts by hand"' in user
+    assert 'example the team judged NOT relevant: "Hiring a CRM admin in Berlin"' in user
+    # Examples stay attached to their own topic, and topics without any add none.
+    assert user.index("topic_id 7") < user.index("judged relevant") < user.index("topic_id 9")
+    assert user.count("example the team judged") == 2

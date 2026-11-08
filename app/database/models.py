@@ -368,3 +368,37 @@ class ApiKeyModel(Base):
     )
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SignalStateModel(Base):
+    """A workspace's decision on a signal: relevant, not relevant or replied.
+
+    "new" is the absence of a row. ``topic_id`` remembers which topic feed the user judged the
+    signal in, so the decisions can be shown to the model as examples for that topic.
+    """
+
+    __tablename__ = "signal_states"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('relevant', 'not_relevant', 'replied')", name="ck_signal_states_state"
+        ),
+        Index("ix_signal_states_workspace_state", "workspace_id", "state"),
+    )
+
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    source_item_id: Mapped[int] = mapped_column(
+        ForeignKey("source_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    topic_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tracked_topics.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

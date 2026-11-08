@@ -23,6 +23,8 @@ from app.config import Settings
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.embeddings.embedding_service import EmbeddingService
 from app.errors import DatabaseUnavailableError
+from app.inbox.repository import InboxRepository, InboxStore
+from app.inbox.schemas import InboxItem
 from app.opportunities.ranking import (
     OpportunityClusterInput,
     OpportunityRankingResult,
@@ -240,6 +242,27 @@ class RepositoryFreshnessReader:
             raise DatabaseUnavailableError("database is unavailable") from error
 
 
+class EmptyInbox:
+    """Inbox used when no database is configured: nothing to show, nothing to update."""
+
+    def list_items(
+        self, workspace_id, topic_id=None, state="new", limit=50, offset=0
+    ) -> tuple[InboxItem, ...]:
+        return ()
+
+    def counts(self, workspace_id: int) -> dict[str, int]:
+        return {"new": 0, "not_relevant": 0, "relevant": 0, "replied": 0}
+
+    def get_item(self, workspace_id: int, signal_id: int) -> InboxItem | None:
+        return None
+
+    def set_state(self, workspace_id, signal_ids, state, note=None, topic_id=None, user_id=None) -> int:
+        return 0
+
+    def feedback_examples(self, workspace_id: int, topic_id: int, per_label: int = 3):
+        return ()
+
+
 class PrivacyService(Protocol):
     def erase_author(self, source: str, author: str) -> int: ...
 
@@ -269,6 +292,7 @@ class ApiDependencies:
     privacy: PrivacyService = field(default_factory=NoPrivacyService)
     freshness_reader: FreshnessReader = field(default_factory=EmptyFreshnessReader)
     tenancy: TenancyStore = field(default_factory=InMemoryTenancyStore)
+    inbox: InboxStore = field(default_factory=EmptyInbox)
     token_verifier: TokenVerifier | None = None
 
 
@@ -287,6 +311,7 @@ def build_default_dependencies(settings: Settings) -> ApiDependencies:
         privacy=PrivacyRepository(),
         freshness_reader=RepositoryFreshnessReader(SourceItemRepository()),
         tenancy=TenancyRepository(),
+        inbox=InboxRepository(),
         token_verifier=build_token_verifier(settings),
     )
 

@@ -19,6 +19,7 @@ from app.api.routes import (
     audit,
     clusters,
     health,
+    inbox,
     opportunities,
     privacy,
     search,
@@ -70,6 +71,7 @@ def create_app(
     app.include_router(usage.router)
     app.include_router(privacy.router)
     app.include_router(workspaces.router)
+    app.include_router(inbox.router)
     return app
 
 
