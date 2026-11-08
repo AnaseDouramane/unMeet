@@ -143,6 +143,7 @@ export interface Topic {
   intents: SignalIntent[];
   products: string[];
   sources: string[];
+  keywords?: string[];
   min_severity: number | null;
   max_distance: number;
   has_webhook: boolean;
@@ -159,6 +160,7 @@ export interface TopicInput {
   description?: string;
   intents?: SignalIntent[];
   products?: string[];
+  keywords?: string[];
   min_severity?: number;
   webhook_url?: string;
 }
@@ -260,6 +262,7 @@ export interface ProposalTopic {
   description: string;
   intents: string[];
   products: string[];
+  keywords?: string[];
 }
 
 export interface Proposal {

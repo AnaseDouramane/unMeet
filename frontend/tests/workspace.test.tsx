@@ -95,7 +95,7 @@ const proposal: Proposal = {
   icp: "RevOps managers",
   competitors: ["Dedupely"],
   topics: [
-    { name: "CRM duplicates", description: "People with duplicate contacts", intents: ["pain_point"], products: ["HubSpot"] },
+    { name: "CRM duplicates", description: "People with duplicate contacts", intents: ["pain_point"], products: ["HubSpot"], keywords: ["merge duplicate contacts"] },
     { name: "Dedupe tools", description: "Asking for a tool", intents: [], products: [] },
   ],
 };
@@ -111,7 +111,9 @@ describe("onboarding", () => {
     expect(await screen.findByText("Dedupely", { exact: false })).toBeInTheDocument();
     expect(analyze).toHaveBeenCalledWith("https://acme.test");
 
+    expect(screen.getByLabelText("Topic 1 phrases")).toHaveValue("merge duplicate contacts");
     fireEvent.change(screen.getByLabelText("Topic 1 description"), { target: { value: "Edited description" } });
+    fireEvent.change(screen.getByLabelText("Topic 1 phrases"), { target: { value: " merge duplicate contacts , hubspot dedupe ,, " } });
     fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[1]);
     fireEvent.click(screen.getByRole("button", { name: "Create 1 topic" }));
 
@@ -119,7 +121,9 @@ describe("onboarding", () => {
       expect(confirm).toHaveBeenCalledWith({
         website_url: "https://acme.test/",
         product_summary: "Acme cleans CRM duplicates.",
-        topics: [{ ...proposal.topics[0], description: "Edited description" }],
+        topics: [
+          { ...proposal.topics[0], description: "Edited description", keywords: ["merge duplicate contacts", "hubspot dedupe"] },
+        ],
       }),
     );
     expect(await screen.findByText("1 topic created")).toBeInTheDocument();
