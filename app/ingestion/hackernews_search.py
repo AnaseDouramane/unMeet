@@ -27,7 +27,9 @@ from app.ingestion.schemas import SourceItem
 logger = logging.getLogger(__name__)
 
 ALGOLIA_URL = "https://hn.algolia.com/api/v1/search_by_date"
-_SUPPORTED_TAGS = frozenset({"comment", "story", "ask_hn", "show_hn"})
+_SUPPORTED_TAGS = frozenset({"comment", "story", "ask_hn", "show_hn", "any"})
+# "any" searches stories and comments together (Algolia OR syntax).
+_ALGOLIA_TAGS = {"any": "(story,comment)"}
 _MAX_HITS_PER_PAGE = 100
 _EXACT_SEARCH = {
     "advancedSyntax": "true",
@@ -73,20 +75,20 @@ class HackerNewsSearchConnector(SourceConnector):
 
     def __init__(
         self,
-        searches: Sequence[SearchSpec],
+        searches: Sequence[SearchSpec] | Callable[[], Sequence[SearchSpec]],
         limit: int = 300,
         lookback_seconds: int = 3600,
         session: _Session | None = None,
         timeout_seconds: float = 15.0,
         clock_seconds: Callable[[], float] | None = None,
     ) -> None:
-        if not searches:
+        if not callable(searches) and not searches:
             raise ValueError("at least one search is required")
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise ValueError("limit must be a positive integer")
         if lookback_seconds <= 0 or timeout_seconds <= 0:
             raise ValueError("lookback_seconds and timeout_seconds must be positive")
-        self.searches = tuple(searches)
+        self._searches = searches
         self.limit = limit
         self.lookback_seconds = lookback_seconds
         self._session: _Session = session or requests.Session()
@@ -94,6 +96,12 @@ class HackerNewsSearchConnector(SourceConnector):
         self._now = clock_seconds or (lambda: datetime.now(UTC).timestamp())
         self._cursors: dict[str, int] = {}
         self._pending: dict[str, int] = {}
+
+    @property
+    def searches(self) -> tuple[SearchSpec, ...]:
+        """The searches to run now (a callable source is re-read, so new topics are picked up)."""
+        found = self._searches() if callable(self._searches) else self._searches
+        return tuple(found)
 
     def load_cursors(self, store: CursorStore) -> None:
         self._cursors, self._pending = {}, {}
@@ -115,10 +123,11 @@ class HackerNewsSearchConnector(SourceConnector):
         and whatever a quiet search does not use rolls over to the searches after it.
         """
         remaining = self.limit
-        for index, spec in enumerate(self.searches):
+        searches = self.searches
+        for index, spec in enumerate(searches):
             if remaining <= 0:
                 return
-            searches_left = len(self.searches) - index
+            searches_left = len(searches) - index
             share = max(1, -(-remaining // searches_left))  # ceiling division
             used = 0
             for item in self._fetch_search(spec, share):
@@ -160,7 +169,7 @@ class HackerNewsSearchConnector(SourceConnector):
 
     def _request(self, spec: SearchSpec, since: int, page: int) -> tuple[list[dict[str, Any]], int]:
         params: dict[str, Any] = {
-            "tags": spec.tag,
+            "tags": _ALGOLIA_TAGS.get(spec.tag, spec.tag),
             "numericFilters": f"created_at_i>{since}",
             "hitsPerPage": min(self.limit, _MAX_HITS_PER_PAGE),
             "page": page,

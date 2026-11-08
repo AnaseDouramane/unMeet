@@ -146,6 +146,7 @@ class TopicCreateRequest(BaseModel):
     intents: list[SignalIntentParam] = Field(default_factory=list)
     products: list[str] = Field(default_factory=list, max_length=20)
     sources: list[str] = Field(default_factory=list, max_length=10)
+    keywords: list[str] = Field(default_factory=list, max_length=10)
     min_severity: int | None = Field(default=None, ge=1, le=3)
     max_distance: float = Field(default=0.6, gt=0, le=2)
     webhook_url: str | None = Field(default=None, max_length=2000)
@@ -158,6 +159,7 @@ class TopicResponse(BaseModel):
     intents: list[str]
     products: list[str]
     sources: list[str]
+    keywords: list[str] = []
     min_severity: int | None
     max_distance: float
     has_webhook: bool

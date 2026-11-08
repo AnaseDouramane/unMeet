@@ -9,6 +9,7 @@ from app.ingestion.hackernews import HackerNewsConnector
 from app.ingestion.hackernews_search import HackerNewsSearchConnector, SearchSpec
 from app.ingestion.reddit import RedditConnector
 from app.ingestion.stackexchange import StackExchangeConnector
+from app.ingestion.topic_search import TopicSearchConnector
 
 
 def build_configured_connectors(settings: Settings) -> tuple[SourceConnector, ...]:
@@ -31,6 +32,16 @@ def build_configured_connectors(settings: Settings) -> tuple[SourceConnector, ..
             connectors.append(
                 HackerNewsSearchConnector(
                     searches=parse_search_specs(settings.hackernews_searches),
+                    limit=settings.hackernews_search_limit,
+                    lookback_seconds=settings.hackernews_search_lookback_seconds,
+                )
+            )
+        elif source == "hackernews_topics":
+            from app.topics.repository import TopicRepository
+
+            connectors.append(
+                TopicSearchConnector(
+                    TopicRepository().list,
                     limit=settings.hackernews_search_limit,
                     lookback_seconds=settings.hackernews_search_lookback_seconds,
                 )

@@ -45,3 +45,21 @@ def test_unsafe_webhook_urls_are_rejected(url: str) -> None:
 def test_public_https_webhooks_are_accepted() -> None:
     validate_webhook_url("https://api.clay.com/v3/sources/webhook/pull-in-data-from-a-webhook-1")
     validate_webhook_url("https://hooks.zapier.com/hooks/catch/1/abc/")
+
+
+def test_keywords_are_validated() -> None:
+    from app.topics.schemas import MAX_KEYWORDS, TopicDefinition
+
+    ok = TopicDefinition(
+        name="t", description="d", keywords=("looking for a tool", "alternative to x")
+    )
+    assert ok.keywords == ("looking for a tool", "alternative to x")
+    for bad in (
+        ("",),
+        ("  ",),
+        ('say "hi"',),
+        ("x" * 81,),
+        tuple(f"k{i}" for i in range(MAX_KEYWORDS + 1)),
+    ):
+        with pytest.raises(ValueError):
+            TopicDefinition(name="t", description="d", keywords=bad)

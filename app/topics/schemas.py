@@ -6,6 +6,9 @@ from urllib.parse import urlparse
 
 from app.problem_detection.schemas import SIGNAL_INTENTS
 
+MAX_KEYWORDS = 10
+MAX_KEYWORD_LENGTH = 80
+
 
 @dataclass(frozen=True)
 class TopicDefinition:
@@ -20,6 +23,9 @@ class TopicDefinition:
     intents: tuple[str, ...] = ()
     products: tuple[str, ...] = ()
     sources: tuple[str, ...] = ()
+    # Exact phrases people write when they have this need ("looking for a tool to find leads").
+    # Sources use them to find candidate posts before the model judges them.
+    keywords: tuple[str, ...] = ()
     min_severity: int | None = None
     max_distance: float = 0.6
     webhook_url: str | None = None
@@ -34,6 +40,13 @@ class TopicDefinition:
         unknown = set(self.intents) - (SIGNAL_INTENTS - {"none"})
         if unknown:
             raise ValueError(f"unknown intents: {sorted(unknown)}")
+        if len(self.keywords) > MAX_KEYWORDS:
+            raise ValueError(f"at most {MAX_KEYWORDS} keywords")
+        for keyword in self.keywords:
+            if not keyword.strip() or len(keyword.strip()) > MAX_KEYWORD_LENGTH or '"' in keyword:
+                raise ValueError(
+                    f"keywords must be 1-{MAX_KEYWORD_LENGTH} characters without double quotes"
+                )
         if self.min_severity is not None and not 1 <= self.min_severity <= 3:
             raise ValueError("min_severity must be between 1 and 3")
         if not 0 < self.max_distance <= 2:
