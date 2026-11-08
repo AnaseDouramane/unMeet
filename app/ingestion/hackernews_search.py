@@ -99,13 +99,22 @@ class HackerNewsSearchConnector(SourceConnector):
         return {key: str(value) for key, value in self._pending.items()}
 
     def fetch(self) -> Iterable[SourceItem]:
+        """Run every search with its own share of the budget.
+
+        A busy search must not starve the others: each one gets an equal share of what is left,
+        and whatever a quiet search does not use rolls over to the searches after it.
+        """
         remaining = self.limit
-        for spec in self.searches:
+        for index, spec in enumerate(self.searches):
             if remaining <= 0:
                 return
-            for item in self._fetch_search(spec, remaining):
-                remaining -= 1
+            searches_left = len(self.searches) - index
+            share = max(1, -(-remaining // searches_left))  # ceiling division
+            used = 0
+            for item in self._fetch_search(spec, share):
+                used += 1
                 yield item
+            remaining -= used
 
     def _fetch_search(self, spec: SearchSpec, budget: int) -> Iterable[SourceItem]:
         key = spec.cursor_key

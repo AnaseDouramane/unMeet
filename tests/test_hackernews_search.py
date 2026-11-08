@@ -227,3 +227,38 @@ def test_worker_keeps_two_hackernews_connectors_apart_and_commits_cursors() -> N
     assert set(worker.health) == {"hackernews", "hackernews_search"}
     assert [r.status for r in worker.poll_once()] == ["ok", "ok"]
     assert store.get("hackernews_search:comment:*") == "400"
+
+
+def test_a_busy_search_cannot_starve_the_others() -> None:
+    # The first search could return 10 hits, but with a budget of 6 over 3 searches it gets 2.
+    busy = _page([_comment(i, 100 - i) for i in range(10)])
+    session = Session(busy, _page([_comment(50, 50), _comment(51, 49)]), _page([_story(60, 60)]))
+    connector = _connector(
+        session,
+        SearchSpec("comment", "a"),
+        SearchSpec("comment", "b"),
+        SearchSpec("ask_hn"),
+        limit=6,
+    )
+
+    items = [i.external_id for i in connector.fetch()]
+
+    assert items == ["0", "1", "50", "51", "60"]
+    assert len(session.calls) == 3  # all three searches ran
+    # The busy search was cut by its share, so its cursor stays put; the others advanced.
+    assert set(connector.pending_cursors()) == {
+        "hackernews_search:comment:b",
+        "hackernews_search:ask_hn:*",
+    }
+
+
+def test_unused_budget_rolls_over_to_the_following_searches() -> None:
+    session = Session(_page([_comment(1, 10)]), _page([_comment(i, 90 - i) for i in range(20, 30)]))
+    connector = _connector(
+        session, SearchSpec("comment", "quiet"), SearchSpec("comment", "busy"), limit=8
+    )
+
+    items = [i.external_id for i in connector.fetch()]
+
+    # The quiet search used 1 of its 4; the busy one may use the other 7 (it only has hits to give).
+    assert items[0] == "1" and len(items) == 8
