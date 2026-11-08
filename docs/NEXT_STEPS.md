@@ -3,16 +3,42 @@
 Hand this file to Claude Code. It is the source of truth for what to build next and why.
 Breaking changes to the original design are allowed when they serve the goals below.
 
-## 1. Where we are (branch `revamp/product-ready`)
+## 1. Where we are (`main`, November 2026)
 
-- Pipeline: HN (stories + comments), Reddit (OAuth), GitHub → clean/dedupe → LLM signal
-  extraction (intent, verbatim quote, products, severity) → MiniLM embeddings → Postgres +
-  pgvector → UMAP + HDBSCAN clusters with LLM problem statements → trends.
-- Product surface: `/api/v1/signals` (+ CSV), tracked topics behind an API key, webhook alerts
-  (SSRF-safe), Next.js pages Signals and Topics.
-- Quality: 399 backend tests (incl. Postgres integration), 14 frontend tests, ruff + mypy clean,
-  Alembic, CI. See `docs/AUDIT.md`.
-- **Never run against live sources yet.** The first live run is the first task.
+The milestones M1–M4 are implemented and merged; M0 (the live validation) is only started. Numbers
+below were measured, not estimated.
+
+| Milestone | Status | Notes |
+|-----------|--------|-------|
+| M0.1 merge the revamp | done | |
+| M0.2 first live run | **started** | small runs with Groq (`openai/gpt-oss-120b`) on Hacker News only; no Reddit credentials yet |
+| M0.3 labelled evaluation set | **not started** | needs ~300 human labels; precision/recall/F1 with CI are still unknown |
+| M1.1 topic gate before the LLM | done | live: 34 of 75 posts dropped before the model |
+| M1.2 batched, topic-aware matching with a reason | done | live: 13 LLM requests for 41 posts |
+| M1.3 hosted embeddings | **not done** | costs money; MiniLM still runs locally (torch stays in the image) |
+| M1.4 polling worker with cursors | done | |
+| M1.5 new sources | partly | Hacker News search and Stack Exchange work live; Bluesky, GitHub Discussions, Product Hunt not built |
+| M2 multi-tenant SaaS | done except billing/CRM/login UI | workspaces, roles, API keys, JWT verification, inbox, onboarding, reply drafts, digests, plan limits. Not built: Stripe, HubSpot/Pipedrive push, provider sign-in button |
+| M3 launch surface | done | landing + demo (off by default), public reports, dogfood seed, `docs/LAUNCH.md`. Launch actions are the owner's |
+| M4 hardening | done except deploy | rate limits, audit, JSON logs, LLM cost tracking, GDPR tooling; Dockerfile written but never built; nothing deployed |
+
+Quality: 704 backend tests (including PostgreSQL integration), 52 frontend tests, ruff, `python -m mypy
+app` (the plain `mypy` command can miss imports) and the frontend lint/build are clean in CI.
+
+What the live runs showed (small samples, treat as directions, not results):
+
+- The pipeline works end to end on real data with 0 classification errors; a generic classification
+  costs about 1,100 tokens per post with a reasoning model.
+- Hacker News is a thin source for GTM buyer intent. Algolia's default fuzzy search returned mostly
+  unrelated comments; exact phrases fixed that. With the dogfood topics, 75 posts produced 3 inbox
+  matches: one clearly right, one plausible, one wrong. Reddit is where this intent mostly lives, so
+  M0.2 needs Reddit OAuth.
+- The topic gate threshold (`max_distance` 0.6) is strict on MiniLM distances (best matches 0.54–0.9).
+  Do not change it without labelled positives (M0.3).
+
+Next, in this order: Reddit OAuth + the first labelled set (M0.2/M0.3), then tune the gate threshold and
+prompts against it, then billing and deploy. The discovery track (M5) should wait until the GTM core
+is validated.
 
 ## 2. The pivot: from "problem research" to "buyers asking for you, right now"
 
