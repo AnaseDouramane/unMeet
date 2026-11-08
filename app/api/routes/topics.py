@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
+from app.api.audit import record_audit
 from app.api.auth import require_api_key
 from app.api.dependencies import ApiDependencies, get_dependencies
 from app.api.errors import ApiError
@@ -54,6 +55,7 @@ def list_topics(dependencies: ApiDependencies = Depends(get_dependencies)) -> To
 )
 def create_topic(
     request: TopicCreateRequest,
+    http_request: Request,
     dependencies: ApiDependencies = Depends(get_dependencies),
 ) -> TopicResponse:
     try:
@@ -67,7 +69,16 @@ def create_topic(
             max_distance=request.max_distance,
             webhook_url=request.webhook_url,
         )
-        return _topic_response(dependencies.topic_store.create(definition))
+        topic = dependencies.topic_store.create(definition)
+        record_audit(
+            http_request,
+            dependencies,
+            "topic.create",
+            "topic",
+            topic.id,
+            {"name": topic.name, "has_webhook": topic.webhook_url is not None},
+        )
+        return _topic_response(topic)
     except DuplicateTopicError as error:
         raise ApiError(409, "topic_exists", str(error)) from error
     except ValueError as error:
@@ -76,10 +87,13 @@ def create_topic(
 
 @router.delete("/{topic_id}", status_code=204, dependencies=[Depends(require_api_key)])
 def delete_topic(
-    topic_id: int, dependencies: ApiDependencies = Depends(get_dependencies)
+    topic_id: int,
+    http_request: Request,
+    dependencies: ApiDependencies = Depends(get_dependencies),
 ) -> Response:
     if not dependencies.topic_store.delete(topic_id):
         raise ApiError(404, "topic_not_found", f"topic {topic_id} does not exist")
+    record_audit(http_request, dependencies, "topic.delete", "topic", topic_id)
     return Response(status_code=204)
 
 

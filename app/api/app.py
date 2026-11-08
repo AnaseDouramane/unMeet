@@ -13,8 +13,10 @@ from app.api.dependencies import (
     build_default_dependencies,
 )
 from app.api.errors import ApiError
+from app.api.middleware import ApiMiddleware
 from app.api.routes import (
     analytics,
+    audit,
     clusters,
     health,
     opportunities,
@@ -38,11 +40,19 @@ def create_app(
     app.state.settings = api_settings
     app.state.dependencies = dependencies or build_default_dependencies(api_settings.embedding_model)
     app.add_middleware(
+        ApiMiddleware,
+        read_limit_per_minute=api_settings.rate_limit_read_per_minute,
+        write_limit_per_minute=api_settings.rate_limit_write_per_minute,
+        trust_proxy=api_settings.trust_proxy_headers,
+    )
+    # CORS is added last so it is outermost: 429 responses still carry CORS headers.
+    app.add_middleware(
         CORSMiddleware,
         allow_origins=list(api_settings.api_cors_origins),
         allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Content-Type", "Authorization", "X-API-Key"],
+        allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-Request-ID"],
+        expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "Retry-After"],
     )
     _register_error_handlers(app)
     app.include_router(health.router)
@@ -53,6 +63,7 @@ def create_app(
     app.include_router(search.router)
     app.include_router(signals.router)
     app.include_router(topics.router)
+    app.include_router(audit.router)
     return app
 
 

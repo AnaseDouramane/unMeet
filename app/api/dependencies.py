@@ -17,6 +17,7 @@ from app.analytics.schemas import (
     TrendDistribution,
 )
 from app.analytics.service import AnalyticsService
+from app.audit.log import AuditLog, AuditLogRepository, InMemoryAuditLog
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.embeddings.embedding_service import EmbeddingService
 from app.errors import DatabaseUnavailableError
@@ -219,6 +220,7 @@ class ApiDependencies:
     semantic_search: SemanticSearch
     signal_reader: SignalReader = field(default_factory=EmptySignalReader)
     topic_store: TopicStore = field(default_factory=InMemoryTopicStore)
+    audit_log: AuditLog = field(default_factory=InMemoryAuditLog)
 
 
 def build_default_dependencies(embedding_model: str) -> ApiDependencies:
@@ -231,6 +233,7 @@ def build_default_dependencies(embedding_model: str) -> ApiDependencies:
         semantic_search=RepositorySemanticSearch(embedding_service, SourceItemRepository()),
         signal_reader=RepositorySignalReader(embedding_service, SourceItemRepository()),
         topic_store=TopicRepository(),
+        audit_log=AuditLogRepository(),
     )
 
 

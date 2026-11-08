@@ -245,3 +245,21 @@ class SourceCursorModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class AuditLogModel(Base):
+    """Append-only record of a write: who (a hashed API-key id or IP), what, to which resource."""
+
+    __tablename__ = "audit_log"
+    __table_args__ = (Index("ix_audit_log_created_at", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

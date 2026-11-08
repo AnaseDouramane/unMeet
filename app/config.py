@@ -152,6 +152,9 @@ class Settings:
     api_port: int = int(os.getenv("API_PORT", "8000"))
     api_cors_origins: tuple[str, ...] = _api_cors_origins()
     api_key: str | None = os.getenv("UNMEET_API_KEY") or None
+    rate_limit_read_per_minute: int = int(os.getenv("RATE_LIMIT_READ_PER_MINUTE", "120"))
+    rate_limit_write_per_minute: int = int(os.getenv("RATE_LIMIT_WRITE_PER_MINUTE", "30"))
+    trust_proxy_headers: bool = _boolean_setting("TRUST_PROXY_HEADERS", False)
 
 
 settings = Settings()
