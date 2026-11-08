@@ -189,7 +189,7 @@ class TrackedTopicModel(Base):
 
     __tablename__ = "tracked_topics"
     __table_args__ = (
-        UniqueConstraint("name", name="uq_tracked_topics_name"),
+        UniqueConstraint("workspace_id", "name", name="uq_tracked_topics_workspace_name"),
         CheckConstraint(
             "min_severity IS NULL OR min_severity BETWEEN 1 AND 3",
             name="ck_tracked_topics_min_severity_range",
@@ -201,6 +201,9 @@ class TrackedTopicModel(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     intents: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
@@ -263,6 +266,7 @@ class AuditLogModel(Base):
     resource_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    workspace_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
 
 class LlmUsageModel(Base):
@@ -280,6 +284,7 @@ class LlmUsageModel(Base):
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    workspace_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
 
 class ErasureRequestModel(Base):
@@ -289,6 +294,138 @@ class ErasureRequestModel(Base):
 
     source: Mapped[str] = mapped_column(String(50), primary_key=True)
     author_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class WorkspaceModel(Base):
+    """A customer account: owns topics, API keys, members and the plan limits that apply."""
+
+    __tablename__ = "workspaces"
+    __table_args__ = (UniqueConstraint("slug", name="uq_workspaces_slug"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    slug: Mapped[str] = mapped_column(String(80), nullable=False)
+    plan: Mapped[str] = mapped_column(String(32), nullable=False, server_default="free")
+    website_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    product_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class UserModel(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("email", name="uq_users_email"),
+        UniqueConstraint("external_id", name="uq_users_external_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class MembershipModel(Base):
+    __tablename__ = "memberships"
+    __table_args__ = (
+        CheckConstraint("role IN ('owner', 'admin', 'member')", name="ck_memberships_role"),
+    )
+
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ApiKeyModel(Base):
+    """A workspace API key. Only a SHA-256 of the key is stored; the key is shown once."""
+
+    __tablename__ = "api_keys"
+    __table_args__ = (
+        UniqueConstraint("prefix", name="uq_api_keys_prefix"),
+        UniqueConstraint("key_hash", name="uq_api_keys_key_hash"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    prefix: Mapped[str] = mapped_column(String(16), nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SignalStateModel(Base):
+    """A workspace's decision on a signal: relevant, not relevant or replied.
+
+    "new" is the absence of a row. ``topic_id`` remembers which topic feed the user judged the
+    signal in, so the decisions can be shown to the model as examples for that topic.
+    """
+
+    __tablename__ = "signal_states"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('relevant', 'not_relevant', 'replied')", name="ck_signal_states_state"
+        ),
+        Index("ix_signal_states_workspace_state", "workspace_id", "state"),
+    )
+
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    source_item_id: Mapped[int] = mapped_column(
+        ForeignKey("source_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    topic_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tracked_topics.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class DeliveryChannelModel(Base):
+    """Where a workspace wants its digest: an email address or a Slack incoming webhook."""
+
+    __tablename__ = "delivery_channels"
+    __table_args__ = (
+        CheckConstraint("kind IN ('email', 'slack')", name="ck_delivery_channels_kind"),
+        CheckConstraint("frequency IN ('daily', 'weekly')", name="ck_delivery_channels_frequency"),
+        UniqueConstraint("workspace_id", "kind", "target", name="uq_delivery_channels_target"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    workspace_id: Mapped[int] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    target: Mapped[str] = mapped_column(Text, nullable=False)
+    frequency: Mapped[str] = mapped_column(String(16), nullable=False, server_default="daily")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

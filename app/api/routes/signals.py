@@ -5,6 +5,7 @@ from fastapi.responses import PlainTextResponse
 
 from app.api.dependencies import ApiDependencies, get_dependencies
 from app.api.errors import ApiError
+from app.api.principal import get_principal
 from app.api.schemas import SignalIntentParam, SignalListResponse, SignalResponse
 from app.signals.schemas import MAX_SIGNAL_LIMIT, Signal, SignalQuery
 from app.signals.service import signals_to_csv
@@ -62,7 +63,7 @@ def _signal_response(signal: Signal) -> SignalResponse:
     )
 
 
-@router.get("/signals", response_model=SignalListResponse)
+@router.get("/signals", response_model=SignalListResponse, dependencies=[Depends(get_principal)])
 def list_signals(
     query: SignalQuery = Depends(_signal_query),
     topic: str | None = Query(default=None, max_length=500, description=_TOPIC_DESCRIPTION),
@@ -76,7 +77,7 @@ def list_signals(
     )
 
 
-@router.get("/signals.csv", response_class=PlainTextResponse)
+@router.get("/signals.csv", response_class=PlainTextResponse, dependencies=[Depends(get_principal)])
 def export_signals(
     query: SignalQuery = Depends(_signal_query),
     topic: str | None = Query(default=None, max_length=500, description=_TOPIC_DESCRIPTION),

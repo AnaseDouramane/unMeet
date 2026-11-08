@@ -72,7 +72,7 @@ def _store_with_topic(**overrides) -> InMemoryTopicStore:
         "webhook_url": "https://hooks.example.com/clay",
     }
     values.update(overrides)
-    store.create(TopicDefinition(**values))
+    store.create(TopicDefinition(**values), workspace_id=1)
     return store
 
 

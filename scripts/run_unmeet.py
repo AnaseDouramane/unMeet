@@ -17,6 +17,7 @@ from app.config import Settings
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.database.schemas import ClusterRunMetadata
 from app.embeddings.embedding_service import EmbeddingService
+from app.inbox.repository import InboxRepository
 from app.ingestion.base import SourceConnector
 from app.ingestion.factory import build_configured_connectors
 from app.privacy.service import ErasureFilter, PrivacyRepository
@@ -55,8 +56,15 @@ def build_ingestion(settings: Settings) -> IngestionComponents:
     problem_detection_service = ProblemDetectionService(classifier)
     embedding_service = EmbeddingService(model_name=settings.embedding_model)
     source_item_repository = SourceItemRepository()
+    inbox = InboxRepository()
     topic_gate = (
-        TopicGate(TopicRepository().list, embedding_service)
+        TopicGate(
+            TopicRepository().list,
+            embedding_service,
+            examples=lambda topic: [
+                (e.text, e.relevant) for e in inbox.feedback_examples(topic.workspace_id, topic.id)
+            ],
+        )
         if getattr(settings, "topic_gate_enabled", False)
         else None
     )

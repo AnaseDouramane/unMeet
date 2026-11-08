@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { ConnectPanel } from "@/components/auth/connect-panel";
 import { EmptyState, ErrorState, LoadingSkeleton } from "@/components/ui/states";
 import { SignalCard } from "@/components/signals/signal-card";
 import { api, ApiClientError } from "@/lib/api";
@@ -23,13 +24,16 @@ export function SignalFeed() {
   const [signals, setSignals] = useState<Signal[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [needsLogin, setNeedsLogin] = useState(false);
 
   const load = useCallback(async (current: SignalFilters) => {
     setLoading(true);
     setError(null);
     try {
       setSignals((await api.getSignals(current)).items);
+      setNeedsLogin(false);
     } catch (caught) {
+      if (caught instanceof ApiClientError && caught.status === 401) setNeedsLogin(true);
       setError(caught instanceof ApiClientError ? caught.message : "Signals could not be loaded.");
     } finally {
       setLoading(false);
@@ -56,6 +60,8 @@ export function SignalFeed() {
       current.includes(intent) ? current.filter((value) => value !== intent) : [...current, intent],
     );
   }
+
+  if (needsLogin) return <ConnectPanel onConnected={() => void load(filters)} />;
 
   return (
     <>

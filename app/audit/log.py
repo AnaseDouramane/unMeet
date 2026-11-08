@@ -22,6 +22,7 @@ class AuditEvent:
     resource_id: str | None = None
     details: Mapping[str, Any] = field(default_factory=dict)
     request_id: str | None = None
+    workspace_id: int | None = None
     id: int = 0
     created_at: datetime | None = None
 
@@ -29,7 +30,9 @@ class AuditEvent:
 class AuditLog(Protocol):
     def record(self, event: AuditEvent) -> AuditEvent: ...
 
-    def list(self, limit: int = 100, offset: int = 0) -> tuple[AuditEvent, ...]: ...
+    def list(
+        self, limit: int = 100, offset: int = 0, workspace_id: int | None = None
+    ) -> tuple[AuditEvent, ...]: ...
 
 
 class InMemoryAuditLog:
@@ -44,14 +47,21 @@ class InMemoryAuditLog:
             resource_id=event.resource_id,
             details=dict(event.details),
             request_id=event.request_id,
+            workspace_id=event.workspace_id,
             id=len(self._events) + 1,
             created_at=datetime.now(UTC),
         )
         self._events.append(stored)
         return stored
 
-    def list(self, limit: int = 100, offset: int = 0) -> tuple[AuditEvent, ...]:
-        newest_first = list(reversed(self._events))
+    def list(
+        self, limit: int = 100, offset: int = 0, workspace_id: int | None = None
+    ) -> tuple[AuditEvent, ...]:
+        newest_first = [
+            e
+            for e in reversed(self._events)
+            if workspace_id is None or e.workspace_id == workspace_id
+        ]
         return tuple(newest_first[offset : offset + limit])
 
 
@@ -68,20 +78,21 @@ class AuditLogRepository:
                 resource_id=event.resource_id,
                 details=dict(event.details),
                 request_id=event.request_id,
+                workspace_id=event.workspace_id,
             )
             session.add(model)
             session.commit()
             session.refresh(model)
             return _to_event(model)
 
-    def list(self, limit: int = 100, offset: int = 0) -> tuple[AuditEvent, ...]:
+    def list(
+        self, limit: int = 100, offset: int = 0, workspace_id: int | None = None
+    ) -> tuple[AuditEvent, ...]:
         with self._session_factory() as session:
-            statement = (
-                select(AuditLogModel)
-                .order_by(AuditLogModel.id.desc())
-                .offset(offset)
-                .limit(limit)
-            )
+            statement = select(AuditLogModel).order_by(AuditLogModel.id.desc())
+            if workspace_id is not None:
+                statement = statement.where(AuditLogModel.workspace_id == workspace_id)
+            statement = statement.offset(offset).limit(limit)
             return tuple(_to_event(model) for model in session.scalars(statement))
 
 
@@ -95,4 +106,5 @@ def _to_event(model: AuditLogModel) -> AuditEvent:
         resource_id=model.resource_id,
         details=dict(model.details or {}),
         request_id=model.request_id,
+        workspace_id=model.workspace_id,
     )

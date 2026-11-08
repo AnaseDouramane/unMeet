@@ -397,11 +397,15 @@ def _topic_ids(topics: Sequence[TopicContext]) -> frozenset[int]:
 def _topic_block(topics: Sequence[TopicContext]) -> str:
     if not topics:
         return ""
-    lines = [
-        f"- topic_id {topic.id}: {topic.name}"
-        + (f" — {topic.description}" if topic.description else "")
-        for topic in topics
-    ]
+    lines: list[str] = []
+    for topic in topics:
+        lines.append(
+            f"- topic_id {topic.id}: {topic.name}"
+            + (f" — {topic.description}" if topic.description else "")
+        )
+        for text, relevant in topic.examples:
+            label = "relevant" if relevant else "NOT relevant"
+            lines.append(f'  example the team judged {label}: "{_normalise_whitespace(text)}"')
     return "\nCandidate topics:\n" + "\n".join(lines)
 
 

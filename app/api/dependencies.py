@@ -18,16 +18,27 @@ from app.analytics.schemas import (
 )
 from app.analytics.service import AnalyticsService
 from app.audit.log import AuditLog, AuditLogRepository, InMemoryAuditLog
+from app.auth.jwt import JwtVerifier, TokenVerifier
+from app.config import Settings
 from app.database.repository import ClusterRepository, SourceItemRepository
+from app.delivery.repository import ChannelRepository, ChannelStore, InMemoryChannelStore
 from app.embeddings.embedding_service import EmbeddingService
 from app.errors import DatabaseUnavailableError
+from app.inbox.repository import InboxRepository, InboxStore
+from app.inbox.schemas import InboxItem
+from app.llm.client import ChatCompletionsClient
+from app.net.safe_fetch import SafeFetcher
+from app.onboarding.service import OnboardingService
 from app.opportunities.ranking import (
     OpportunityClusterInput,
     OpportunityRankingResult,
     OpportunityRankingService,
 )
 from app.privacy.service import PrivacyRepository
+from app.reply.service import ReplyAssistant
 from app.signals.service import EmptySignalReader, RepositorySignalReader, SignalReader
+from app.tenancy.repository import TenancyRepository
+from app.tenancy.store import InMemoryTenancyStore, TenancyStore
 from app.topics.repository import TopicRepository
 from app.topics.store import InMemoryTopicStore, TopicStore
 from app.usage.llm_usage import LlmUsageRepository, UsageTotals
@@ -164,7 +175,9 @@ class RepositoryAnalyticsReadFacade:
         if cluster is None:
             return None
         try:
-            documents = self._cluster_repository.get_documents_for_cluster(cluster_id, document_limit)
+            documents = self._cluster_repository.get_documents_for_cluster(
+                cluster_id, document_limit
+            )
         except SQLAlchemyError as error:
             raise DatabaseUnavailableError("database is unavailable") from error
         return ClusterDetail(
@@ -186,7 +199,9 @@ class RepositoryAnalyticsReadFacade:
 
 
 class RepositorySemanticSearch:
-    def __init__(self, embedding_service: EmbeddingService, repository: SourceItemRepository) -> None:
+    def __init__(
+        self, embedding_service: EmbeddingService, repository: SourceItemRepository
+    ) -> None:
         self._embedding_service = embedding_service
         self._repository = repository
 
@@ -236,6 +251,32 @@ class RepositoryFreshnessReader:
             raise DatabaseUnavailableError("database is unavailable") from error
 
 
+class EmptyInbox:
+    """Inbox used when no database is configured: nothing to show, nothing to update."""
+
+    def list_items(
+        self, workspace_id, topic_id=None, state="new", limit=50, offset=0
+    ) -> tuple[InboxItem, ...]:
+        return ()
+
+    def counts(self, workspace_id: int) -> dict[str, int]:
+        return {"new": 0, "not_relevant": 0, "relevant": 0, "replied": 0}
+
+    def get_item(self, workspace_id: int, signal_id: int) -> InboxItem | None:
+        return None
+
+    def signal_text(self, workspace_id: int, signal_id: int) -> str | None:
+        return None
+
+    def set_state(
+        self, workspace_id, signal_ids, state, note=None, topic_id=None, user_id=None
+    ) -> int:
+        return 0
+
+    def feedback_examples(self, workspace_id: int, topic_id: int, per_label: int = 3):
+        return ()
+
+
 class PrivacyService(Protocol):
     def erase_author(self, source: str, author: str) -> int: ...
 
@@ -246,11 +287,15 @@ class NoPrivacyService:
 
 
 class UsageReader(Protocol):
-    def totals(self, since: datetime | None = None) -> tuple[UsageTotals, ...]: ...
+    def totals(
+        self, since: datetime | None = None, workspace_id: int | None = None
+    ) -> tuple[UsageTotals, ...]: ...
 
 
 class EmptyUsageReader:
-    def totals(self, since: datetime | None = None) -> tuple[UsageTotals, ...]:
+    def totals(
+        self, since: datetime | None = None, workspace_id: int | None = None
+    ) -> tuple[UsageTotals, ...]:
         return ()
 
 
@@ -264,10 +309,35 @@ class ApiDependencies:
     usage_reader: UsageReader = field(default_factory=EmptyUsageReader)
     privacy: PrivacyService = field(default_factory=NoPrivacyService)
     freshness_reader: FreshnessReader = field(default_factory=EmptyFreshnessReader)
+    tenancy: TenancyStore = field(default_factory=InMemoryTenancyStore)
+    inbox: InboxStore = field(default_factory=EmptyInbox)
+    channels: ChannelStore = field(default_factory=InMemoryChannelStore)
+    onboarding: OnboardingService | None = None
+    reply_assistant: ReplyAssistant | None = None
+    token_verifier: TokenVerifier | None = None
 
 
-def build_default_dependencies(embedding_model: str) -> ApiDependencies:
-    embedding_service = EmbeddingService(embedding_model)
+def build_default_dependencies(settings: Settings) -> ApiDependencies:
+    embedding_service = EmbeddingService(settings.embedding_model)
+    onboarding = reply_assistant = None
+    if settings.llm_model:
+        usage = LlmUsageRepository(
+            input_usd_per_mtok=settings.llm_input_usd_per_mtok,
+            output_usd_per_mtok=settings.llm_output_usd_per_mtok,
+        )
+        sink = usage.record if settings.llm_usage_tracking else None
+
+        def client(purpose: str) -> ChatCompletionsClient:
+            return ChatCompletionsClient(
+                model=settings.llm_model or "",
+                base_url=settings.llm_base_url,
+                api_key=settings.llm_api_key,
+                usage_sink=sink,
+                purpose=purpose,
+            )
+
+        onboarding = OnboardingService(client("onboarding"), SafeFetcher())
+        reply_assistant = ReplyAssistant(client("reply_draft"))
     return ApiDependencies(
         analytics_reader=RepositoryAnalyticsReadFacade(
             ClusterRepository(),
@@ -280,6 +350,24 @@ def build_default_dependencies(embedding_model: str) -> ApiDependencies:
         usage_reader=LlmUsageRepository(),
         privacy=PrivacyRepository(),
         freshness_reader=RepositoryFreshnessReader(SourceItemRepository()),
+        tenancy=TenancyRepository(),
+        inbox=InboxRepository(),
+        channels=ChannelRepository(),
+        onboarding=onboarding,
+        reply_assistant=reply_assistant,
+        token_verifier=build_token_verifier(settings),
+    )
+
+
+def build_token_verifier(settings: Settings) -> TokenVerifier | None:
+    """A JWT verifier when login is configured, otherwise None (API keys only)."""
+    if not (settings.auth_jwt_secret or settings.auth_jwks_url):
+        return None
+    return JwtVerifier(
+        secret=settings.auth_jwt_secret,
+        jwks_url=None if settings.auth_jwt_secret else settings.auth_jwks_url,
+        issuer=settings.auth_jwt_issuer,
+        audience=settings.auth_jwt_audience,
     )
 
 

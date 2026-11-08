@@ -13,12 +13,15 @@ from app.api.dependencies import (
     build_default_dependencies,
 )
 from app.api.errors import ApiError
-from app.api.middleware import ApiMiddleware
+from app.api.middleware import ApiMiddleware, SlidingWindowRateLimiter
 from app.api.routes import (
     analytics,
     audit,
+    channels,
     clusters,
     health,
+    inbox,
+    onboarding,
     opportunities,
     privacy,
     search,
@@ -26,6 +29,7 @@ from app.api.routes import (
     topics,
     trends,
     usage,
+    workspaces,
 )
 from app.api.schemas import ErrorResponse
 from app.config import Settings
@@ -40,7 +44,8 @@ def create_app(
     api_settings = settings or Settings()
     app = FastAPI(title=api_settings.api_title, version=api_settings.api_version)
     app.state.settings = api_settings
-    app.state.dependencies = dependencies or build_default_dependencies(api_settings.embedding_model)
+    app.state.onboarding_limiter = SlidingWindowRateLimiter(window_seconds=3600)
+    app.state.dependencies = dependencies or build_default_dependencies(api_settings)
     app.add_middleware(
         ApiMiddleware,
         read_limit_per_minute=api_settings.rate_limit_read_per_minute,
@@ -52,9 +57,20 @@ def create_app(
         CORSMiddleware,
         allow_origins=list(api_settings.api_cors_origins),
         allow_credentials=True,
-        allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-Request-ID"],
-        expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "Retry-After"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+        allow_headers=[
+            "Content-Type",
+            "Authorization",
+            "X-API-Key",
+            "X-Request-ID",
+            "X-Workspace-ID",
+        ],
+        expose_headers=[
+            "X-Request-ID",
+            "X-RateLimit-Limit",
+            "X-RateLimit-Remaining",
+            "Retry-After",
+        ],
     )
     _register_error_handlers(app)
     app.include_router(health.router)
@@ -68,6 +84,10 @@ def create_app(
     app.include_router(audit.router)
     app.include_router(usage.router)
     app.include_router(privacy.router)
+    app.include_router(workspaces.router)
+    app.include_router(inbox.router)
+    app.include_router(onboarding.router)
+    app.include_router(channels.router)
     return app
 
 

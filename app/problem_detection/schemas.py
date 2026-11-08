@@ -24,6 +24,8 @@ class TopicContext:
     id: int
     name: str
     description: str | None = None
+    # Past decisions of the workspace on this topic, newest first: (text, was_relevant).
+    examples: tuple[tuple[str, bool], ...] = ()
 
 
 @dataclass(frozen=True)

@@ -147,6 +147,16 @@ class Settings:
         "INGESTION_STALE_AFTER_SECONDS", 21600
     )
     privacy_contact_email: str | None = os.getenv("PRIVACY_CONTACT_EMAIL") or None
+    auth_jwt_secret: str | None = os.getenv("AUTH_JWT_SECRET") or None
+    auth_jwks_url: str | None = os.getenv("AUTH_JWKS_URL") or None
+    auth_jwt_issuer: str | None = os.getenv("AUTH_JWT_ISSUER") or None
+    auth_jwt_audience: str | None = os.getenv("AUTH_JWT_AUDIENCE") or None
+    smtp_host: str | None = os.getenv("SMTP_HOST") or None
+    smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
+    smtp_username: str | None = os.getenv("SMTP_USERNAME") or None
+    smtp_password: str | None = os.getenv("SMTP_PASSWORD") or None
+    smtp_from: str | None = os.getenv("SMTP_FROM") or None
+    smtp_starttls: bool = _boolean_setting("SMTP_STARTTLS", True)
     labeling_backend: str = os.getenv("LABELING_BACKEND", "keywords").strip().lower()
     classification_batch_size: int = _positive_integer_setting("CLASSIFICATION_BATCH_SIZE", 1)
     poll_interval_seconds: int = _positive_integer_setting("POLL_INTERVAL_SECONDS", 600)

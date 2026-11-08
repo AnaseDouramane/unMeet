@@ -53,11 +53,14 @@ class LlmUsageRepository:
                     prompt_tokens=usage.prompt_tokens,
                     completion_tokens=usage.completion_tokens,
                     cost_usd=self.estimate_cost(usage),
+                    workspace_id=usage.workspace_id,
                 )
             )
             session.commit()
 
-    def totals(self, since: datetime | None = None) -> tuple[UsageTotals, ...]:
+    def totals(
+        self, since: datetime | None = None, workspace_id: int | None = None
+    ) -> tuple[UsageTotals, ...]:
         statement = select(
             LlmUsageModel.purpose,
             func.count(),
@@ -68,6 +71,8 @@ class LlmUsageRepository:
         ).group_by(LlmUsageModel.purpose)
         if since is not None:
             statement = statement.where(LlmUsageModel.created_at >= since)
+        if workspace_id is not None:
+            statement = statement.where(LlmUsageModel.workspace_id == workspace_id)
         with self._session_factory() as session:
             rows = session.execute(statement.order_by(LlmUsageModel.purpose)).all()
         return tuple(

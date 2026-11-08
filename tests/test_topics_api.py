@@ -7,6 +7,7 @@ from app.api.app import create_app
 from app.api.dependencies import ApiDependencies, EmptyAnalyticsReadFacade
 from app.config import settings
 from app.signals.schemas import SignalQuery
+from app.tenancy.store import InMemoryTenancyStore
 from app.topics.store import InMemoryTopicStore
 
 API_KEY = "test-key-123"
@@ -26,6 +27,13 @@ class RecordingReader:
         return ()
 
 
+def team_tenancy() -> InMemoryTenancyStore:
+    """A tenancy store whose default workspace is on the team plan (tests act as the operator)."""
+    tenancy = InMemoryTenancyStore()
+    tenancy.set_plan(tenancy.ensure_default_workspace().id, "team")
+    return tenancy
+
+
 def _client(api_key: str | None = API_KEY, environment: str = "production"):
     reader = RecordingReader()
     app = create_app(
@@ -34,6 +42,7 @@ def _client(api_key: str | None = API_KEY, environment: str = "production"):
             semantic_search=NoSearch(),
             signal_reader=reader,
             topic_store=InMemoryTopicStore(),
+            tenancy=team_tenancy(),
         ),
         settings=replace(settings, api_key=api_key, environment=environment),
     )
@@ -61,13 +70,16 @@ def test_create_list_and_delete_topics_with_api_key() -> None:
     assert body["has_webhook"] is True
     assert "webhook_url" not in body
 
-    listed = client.get("/api/v1/topics").json()["items"]
+    listed = client.get("/api/v1/topics", headers=headers).json()["items"]
     assert [topic["name"] for topic in listed] == ["CRM hygiene"]
 
     duplicate = client.post("/api/v1/topics", json=TOPIC, headers=headers)
     assert duplicate.status_code == 409
 
-    assert client.delete(f"/api/v1/topics/{body['id']}", headers={"X-API-Key": API_KEY}).status_code == 204
+    assert (
+        client.delete(f"/api/v1/topics/{body['id']}", headers={"X-API-Key": API_KEY}).status_code
+        == 204
+    )
     assert client.delete(f"/api/v1/topics/{body['id']}", headers=headers).status_code == 404
 
 
@@ -78,13 +90,12 @@ def test_writes_require_a_valid_api_key(headers) -> None:
     assert client.post("/api/v1/topics", json=TOPIC, headers=headers).status_code == 401
 
 
-def test_writes_fail_closed_without_a_configured_key_outside_development() -> None:
+def test_without_credentials_outside_development_everything_is_unauthorized() -> None:
     client, _ = _client(api_key=None, environment="production")
 
-    response = client.post("/api/v1/topics", json=TOPIC)
-
-    assert response.status_code == 503
-    assert response.json()["code"] == "auth_not_configured"
+    assert client.post("/api/v1/topics", json=TOPIC).status_code == 401
+    assert client.get("/api/v1/topics").status_code == 401
+    assert client.get("/api/v1/signals").status_code == 401
 
 
 def test_development_allows_writes_without_a_key() -> None:
@@ -108,9 +119,13 @@ def test_invalid_topics_return_400() -> None:
 
 def test_topic_signals_reuse_the_topic_filters() -> None:
     client, reader = _client()
-    topic_id = client.post("/api/v1/topics", json=TOPIC, headers={"X-API-Key": API_KEY}).json()["id"]
+    topic_id = client.post("/api/v1/topics", json=TOPIC, headers={"X-API-Key": API_KEY}).json()[
+        "id"
+    ]
 
-    response = client.get(f"/api/v1/topics/{topic_id}/signals", params={"limit": 10})
+    response = client.get(
+        f"/api/v1/topics/{topic_id}/signals", params={"limit": 10}, headers={"X-API-Key": API_KEY}
+    )
 
     assert response.status_code == 200
     query, description = reader.calls[0]
@@ -120,4 +135,6 @@ def test_topic_signals_reuse_the_topic_filters() -> None:
     assert query.min_severity == 2
     assert query.limit == 10
     assert query.topic_id == topic_id
-    assert client.get("/api/v1/topics/999/signals").status_code == 404
+    assert (
+        client.get("/api/v1/topics/999/signals", headers={"X-API-Key": API_KEY}).status_code == 404
+    )

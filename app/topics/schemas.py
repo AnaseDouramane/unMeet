@@ -45,6 +45,7 @@ class TopicDefinition:
 @dataclass(frozen=True)
 class Topic(TopicDefinition):
     id: int = 0
+    workspace_id: int = 0
     created_at: datetime | None = None
     last_delivered_at: datetime | None = None
 

@@ -28,6 +28,7 @@ class LLMUsage:
     prompt_tokens: int
     completion_tokens: int
     purpose: str = "completion"
+    workspace_id: int | None = None
 
     @property
     def total_tokens(self) -> int:
@@ -94,7 +95,7 @@ class ChatCompletionsClient:
         with self._count_lock:
             return self._prompt_tokens, self._completion_tokens
 
-    def _record_usage(self, payload: Any) -> None:
+    def _record_usage(self, payload: Any, workspace_id: int | None = None) -> None:
         usage = payload.get("usage") if isinstance(payload, dict) else None
         if not isinstance(usage, dict):
             return
@@ -114,13 +115,16 @@ class ChatCompletionsClient:
         if self._usage_sink is not None:
             # Accounting must never break a completion.
             with contextlib.suppress(Exception):
-                self._usage_sink(LLMUsage(self.model, prompt, completion, self._purpose))
+                self._usage_sink(
+                    LLMUsage(self.model, prompt, completion, self._purpose, workspace_id)
+                )
 
     def complete(
         self,
         messages: list[dict[str, str]],
         response_format: dict[str, Any] | None = None,
         temperature: float = 0.0,
+        workspace_id: int | None = None,
     ) -> str:
         """Return the assistant message content, retrying transient failures.
 
@@ -166,7 +170,7 @@ class ChatCompletionsClient:
                 content = str(payload["choices"][0]["message"]["content"])
             except (ValueError, KeyError, IndexError, TypeError) as error:
                 raise LLMResponseError("LLM response has no message content") from error
-            self._record_usage(payload)
+            self._record_usage(payload, workspace_id)
             return content
         raise LLMRequestError("LLM request failed after retries")  # pragma: no cover
 

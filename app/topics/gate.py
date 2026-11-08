@@ -44,8 +44,11 @@ class TopicGate:
         self,
         topics: Callable[[], Sequence[Topic]],
         embedding_service: _Embedder,
+        examples: Callable[[Topic], Sequence[tuple[str, bool]]] | None = None,
     ) -> None:
         self._topics_provider = topics
+        self._examples_provider = examples
+        self._examples: dict[int, tuple[tuple[str, bool], ...]] = {}
         self._embedding_service = embedding_service
         self._topics: tuple[Topic, ...] = ()
         self._known: dict[int, str | None] = {}
@@ -65,8 +68,7 @@ class TopicGate:
             for topic in topics
             if topic.description
             and not (
-                topic.id in self._topic_vectors
-                and self._known.get(topic.id) == topic.description
+                topic.id in self._topic_vectors and self._known.get(topic.id) == topic.description
             )
         ]
         if stale:
@@ -79,6 +81,12 @@ class TopicGate:
             if topic.description and topic.id not in vectors:
                 vectors[topic.id] = self._topic_vectors[topic.id]
         self._known = {topic.id: topic.description for topic in topics}
+        # Past decisions are loaded once per run, not once per item.
+        self._examples = (
+            {topic.id: tuple(self._examples_provider(topic)) for topic in topics}
+            if self._examples_provider is not None
+            else {}
+        )
         self._topics = topics
         self._topic_vectors = vectors
         self._product_patterns = {
@@ -95,7 +103,7 @@ class TopicGate:
         """Describe the given active topics for the classifier prompt."""
         wanted = set(topic_ids)
         return tuple(
-            TopicContext(topic.id, topic.name, topic.description)
+            TopicContext(topic.id, topic.name, topic.description, self._examples.get(topic.id, ()))
             for topic in self._topics
             if topic.id in wanted
         )
