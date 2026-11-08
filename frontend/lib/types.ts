@@ -162,3 +162,115 @@ export interface TopicInput {
   min_severity?: number;
   webhook_url?: string;
 }
+
+export type InboxState = "new" | "relevant" | "not_relevant" | "replied";
+
+export interface InboxItem {
+  signal_id: number;
+  source: string;
+  title: string;
+  url: string;
+  author: string | null;
+  published_at: string;
+  intent: SignalIntent | "none" | null;
+  pain_quote: string | null;
+  products_mentioned: string[];
+  severity: number | null;
+  topic_id: number;
+  topic_name: string;
+  relevance_reason: string;
+  state: InboxState;
+  note: string | null;
+  updated_at: string | null;
+}
+
+export interface InboxListResponse {
+  items: InboxItem[];
+  limit: number;
+  offset: number;
+}
+
+export type InboxCounts = Record<InboxState, number>;
+
+export interface ReplyDraft {
+  draft: string;
+  mentions_product: boolean;
+  disclosure_added: boolean;
+  community_rules: string;
+  note: string;
+}
+
+export interface PlanInfo {
+  name: string;
+  monthly_price_eur: number;
+  max_topics: number;
+  max_seats: number;
+  llm_budget_usd: number;
+  webhooks: boolean;
+  daily_digest: boolean;
+}
+
+export interface WorkspaceInfo {
+  id: number;
+  name: string;
+  slug: string;
+  plan: PlanInfo;
+  role: "owner" | "admin" | "member" | null;
+  topics_used: number | null;
+  seats_used: number | null;
+}
+
+export interface Member {
+  user_id: number;
+  email: string;
+  role: "owner" | "admin" | "member";
+}
+
+export interface ApiKeyInfo {
+  id: number;
+  name: string;
+  prefix: string;
+  created_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface ApiKeyCreated extends ApiKeyInfo {
+  key: string;
+}
+
+export interface ChannelInfo {
+  id: number;
+  kind: "email" | "slack";
+  target: string;
+  frequency: "daily" | "weekly";
+  enabled: boolean;
+  last_sent_at: string | null;
+  last_error: string | null;
+}
+
+export interface ChannelInput {
+  kind: "email" | "slack";
+  target: string;
+  frequency: "daily" | "weekly";
+}
+
+export interface ProposalTopic {
+  name: string;
+  description: string;
+  intents: string[];
+  products: string[];
+}
+
+export interface Proposal {
+  source_url: string;
+  product_summary: string;
+  icp: string;
+  competitors: string[];
+  topics: ProposalTopic[];
+}
+
+export interface ConfirmResult {
+  created: Topic[];
+  skipped: { name: string; reason: string }[];
+}

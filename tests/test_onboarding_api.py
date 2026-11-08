@@ -371,3 +371,18 @@ def test_reply_draft_failures_and_budget() -> None:
 
     client, _, admin, *_ = build(reply=FakeReply(), usage=FakeUsage(cost=100.0))
     assert client.post("/api/v1/inbox/5/reply-draft", headers=admin).status_code == 402
+
+
+def test_workspace_usage_reports_month_to_date_against_the_budget() -> None:
+    usage = FakeUsage(cost=1.25)
+    client, _, admin, workspace, *_ = build(usage=usage)
+    body = client.get("/api/v1/workspace/usage", headers=admin).json()
+
+    assert body["spent_usd"] == 1.25 and body["llm_budget_usd"] == 29.0
+    assert body["total_tokens"] == 110 and body["calls"] == 1
+    assert body["month_start"].startswith(datetime.now(UTC).strftime("%Y-%m-01"))
+    assert usage.calls[0][1] == workspace
+
+    client, _, admin, *_ = build(usage=FakeUsage(cost=None))
+    assert client.get("/api/v1/workspace/usage", headers=admin).json()["spent_usd"] is None
+    assert client.get("/api/v1/workspace/usage").status_code == 401

@@ -59,6 +59,8 @@ python -m scripts.deliver_alerts  # push new signals of tracked topics to their 
 python -m scripts.run_worker      # or: keep polling every source every 10 minutes (cursors, backoff)
 ```
 
+Multi-tenant accounts, roles, plans and login are described in [docs/SAAS.md](docs/SAAS.md).
+
 API and UI:
 
 ```bash
@@ -95,6 +97,9 @@ Re-run only clustering, labeling and trends on stored data with `python -m scrip
 | `GET/POST /api/v1/topics`, `DELETE /api/v1/topics/{id}` | saved topics (writes need the API key) |
 | `GET /api/v1/topics/{id}/signals` | best-matching signals for a topic |
 | `GET /api/v1/opportunities`, `/clusters`, `/trends`, `/analytics/summary` | clustered problems and trends |
+| `GET /api/v1/inbox`, `/inbox/counts`, `POST /inbox/state`, `POST /inbox/{id}/reply-draft` | the workspace inbox: triage states, reply drafts |
+| `POST /api/v1/onboarding/analyze`, `/onboarding/confirm` | propose topics from a URL, then create them |
+| `GET /api/v1/workspace`, `/workspace/members`, `/workspace/api-keys`, `/workspace/channels`, `/workspace/usage` | team, keys, digests and AI usage (managers) |
 | `GET /api/v1/search` | semantic search over problems |
 | `GET /health`, `GET /health/ingestion` | liveness; 503 when a source with data went quiet |
 | `GET /api/v1/audit`, `GET /api/v1/usage/llm` | audit trail of writes; LLM tokens and cost (API key) |

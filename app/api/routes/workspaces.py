@@ -8,6 +8,7 @@ from app.api.auth import require_api_key
 from app.api.dependencies import ApiDependencies, get_dependencies
 from app.api.errors import ApiError
 from app.api.principal import get_principal, get_user_identity, require_manager
+from app.billing.budget import month_start, spent_usd
 from app.billing.plans import PLANS, Plan, plan_for
 from app.tenancy.schemas import (
     ConflictError,
@@ -103,6 +104,14 @@ def _current(dependencies: ApiDependencies, principal: Principal) -> Workspace:
     if workspace is None:
         raise ApiError(404, "workspace_not_found", "workspace does not exist")
     return workspace
+
+
+class WorkspaceUsageResponse(BaseModel):
+    month_start: datetime
+    llm_budget_usd: float
+    spent_usd: float | None = Field(description="None while some usage has no configured price")
+    total_tokens: int
+    calls: int
 
 
 @router.get("/plans", response_model=list[PlanResponse])
@@ -318,3 +327,21 @@ def revoke_api_key(
         workspace_id=principal.workspace_id,
     )
     return Response(status_code=204)
+
+
+@router.get("/workspace/usage", response_model=WorkspaceUsageResponse)
+def workspace_usage(
+    principal: Principal = Depends(require_manager),
+    dependencies: ApiDependencies = Depends(get_dependencies),
+) -> WorkspaceUsageResponse:
+    """AI usage of this workspace this month (onboarding, reply drafts) against its budget."""
+    workspace = _current(dependencies, principal)
+    start = month_start()
+    totals = dependencies.usage_reader.totals(start, principal.workspace_id)
+    return WorkspaceUsageResponse(
+        month_start=start,
+        llm_budget_usd=plan_for(workspace.plan).llm_budget_usd,
+        spent_usd=spent_usd(totals),
+        total_tokens=sum(t.prompt_tokens + t.completion_tokens for t in totals),
+        calls=sum(t.calls for t in totals),
+    )
