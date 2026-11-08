@@ -52,3 +52,10 @@ def session_factory(migrated_engine: Engine) -> Iterator[sessionmaker[Session]]:
             connection.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
     yield sessionmaker(bind=migrated_engine, autoflush=False, autocommit=False)
 
+
+
+@pytest.fixture
+def workspace_id(session_factory: sessionmaker[Session]) -> int:
+    from app.tenancy.repository import TenancyRepository
+
+    return TenancyRepository(session_factory).create_workspace("Test", "owner@test.example").id

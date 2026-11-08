@@ -147,6 +147,10 @@ class Settings:
         "INGESTION_STALE_AFTER_SECONDS", 21600
     )
     privacy_contact_email: str | None = os.getenv("PRIVACY_CONTACT_EMAIL") or None
+    auth_jwt_secret: str | None = os.getenv("AUTH_JWT_SECRET") or None
+    auth_jwks_url: str | None = os.getenv("AUTH_JWKS_URL") or None
+    auth_jwt_issuer: str | None = os.getenv("AUTH_JWT_ISSUER") or None
+    auth_jwt_audience: str | None = os.getenv("AUTH_JWT_AUDIENCE") or None
     labeling_backend: str = os.getenv("LABELING_BACKEND", "keywords").strip().lower()
     classification_batch_size: int = _positive_integer_setting("CLASSIFICATION_BATCH_SIZE", 1)
     poll_interval_seconds: int = _positive_integer_setting("POLL_INTERVAL_SECONDS", 600)

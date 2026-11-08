@@ -10,10 +10,12 @@ from app.api.app import create_app
 from app.api.dependencies import ApiDependencies, EmptyAnalyticsReadFacade
 from app.api.middleware import SlidingWindowRateLimiter, client_identity
 from app.config import settings as base_settings
+from app.tenancy.store import InMemoryTenancyStore
 from app.topics.store import InMemoryTopicStore
 from app.utils.logging import JsonFormatter, configure_logging
 
 API_KEY = "test-key-123"
+OPERATOR = {"X-API-Key": API_KEY}
 
 
 class NoSearch:
@@ -21,16 +23,27 @@ class NoSearch:
         return ()
 
 
+def team_tenancy() -> InMemoryTenancyStore:
+    """A tenancy store whose default workspace is on the team plan (tests act as the operator)."""
+    tenancy = InMemoryTenancyStore()
+    tenancy.set_plan(tenancy.ensure_default_workspace().id, "team")
+    return tenancy
+
+
 def _client(**overrides) -> TestClient:
+    tenancy = team_tenancy()
     app = create_app(
         ApiDependencies(
             analytics_reader=EmptyAnalyticsReadFacade(),
             semantic_search=NoSearch(),
             topic_store=InMemoryTopicStore(),
+            tenancy=tenancy,
         ),
         settings=replace(base_settings, api_key=API_KEY, environment="production", **overrides),
     )
-    return TestClient(app)
+    client = TestClient(app)
+    client.tenancy = tenancy  # type: ignore[attr-defined]
+    return client
 
 
 class Clock:
@@ -66,12 +79,12 @@ def test_limiter_prunes_idle_keys() -> None:
 def test_read_limit_returns_429_with_retry_after_and_headers() -> None:
     client = _client(rate_limit_read_per_minute=2)
 
-    first = client.get("/api/v1/signals")
+    first = client.get("/api/v1/signals", headers=OPERATOR)
     assert first.status_code == 200
     assert first.headers["X-RateLimit-Limit"] == "2"
     assert first.headers["X-RateLimit-Remaining"] == "1"
-    assert client.get("/api/v1/signals").status_code != 429
-    blocked = client.get("/api/v1/signals")
+    assert client.get("/api/v1/signals", headers=OPERATOR).status_code != 429
+    blocked = client.get("/api/v1/signals", headers=OPERATOR)
     assert blocked.status_code == 429
     assert int(blocked.headers["Retry-After"]) >= 1
     assert blocked.json()["code"] == "rate_limited"
@@ -102,20 +115,26 @@ def test_writes_have_their_own_stricter_budget() -> None:
 
     assert codes[:2] == [201, 201]
     assert codes[2] == 429
-    assert client.get("/api/v1/topics").status_code == 200  # reads unaffected
+    assert client.get("/api/v1/topics", headers=OPERATOR).status_code == 200  # reads unaffected
 
 
 def test_limit_zero_disables_limiting() -> None:
     client = _client(rate_limit_read_per_minute=0)
-    assert all(client.get("/api/v1/signals").status_code == 200 for _ in range(10))
+    assert all(
+        client.get("/api/v1/signals", headers=OPERATOR).status_code == 200 for _ in range(10)
+    )
 
 
 def test_limits_are_per_api_key_and_429_keeps_cors_headers() -> None:
     client = _client(rate_limit_read_per_minute=1)
-    assert client.get("/api/v1/signals", headers={"X-API-Key": "one"}).status_code == 200
-    assert client.get("/api/v1/signals", headers={"X-API-Key": "two"}).status_code == 200
+    workspace = client.tenancy.ensure_default_workspace().id  # type: ignore[attr-defined]
+    _, one = client.tenancy.create_api_key(workspace, "one")  # type: ignore[attr-defined]
+    _, two = client.tenancy.create_api_key(workspace, "two")  # type: ignore[attr-defined]
+
+    assert client.get("/api/v1/signals", headers={"X-API-Key": one}).status_code == 200
+    assert client.get("/api/v1/signals", headers={"X-API-Key": two}).status_code == 200
     blocked = client.get(
-        "/api/v1/signals", headers={"X-API-Key": "one", "Origin": "http://localhost:3000"}
+        "/api/v1/signals", headers={"X-API-Key": one, "Origin": "http://localhost:3000"}
     )
     assert blocked.status_code == 429
     assert blocked.headers["access-control-allow-origin"] == "http://localhost:3000"

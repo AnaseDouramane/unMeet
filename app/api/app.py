@@ -26,6 +26,7 @@ from app.api.routes import (
     topics,
     trends,
     usage,
+    workspaces,
 )
 from app.api.schemas import ErrorResponse
 from app.config import Settings
@@ -40,7 +41,7 @@ def create_app(
     api_settings = settings or Settings()
     app = FastAPI(title=api_settings.api_title, version=api_settings.api_version)
     app.state.settings = api_settings
-    app.state.dependencies = dependencies or build_default_dependencies(api_settings.embedding_model)
+    app.state.dependencies = dependencies or build_default_dependencies(api_settings)
     app.add_middleware(
         ApiMiddleware,
         read_limit_per_minute=api_settings.rate_limit_read_per_minute,
@@ -52,8 +53,8 @@ def create_app(
         CORSMiddleware,
         allow_origins=list(api_settings.api_cors_origins),
         allow_credentials=True,
-        allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-Request-ID"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+        allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-Request-ID", "X-Workspace-ID"],
         expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "Retry-After"],
     )
     _register_error_handlers(app)
@@ -68,6 +69,7 @@ def create_app(
     app.include_router(audit.router)
     app.include_router(usage.router)
     app.include_router(privacy.router)
+    app.include_router(workspaces.router)
     return app
 
 

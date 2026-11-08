@@ -19,6 +19,7 @@ def record_audit(
     resource_type: str,
     resource_id: object | None = None,
     details: Mapping[str, Any] | None = None,
+    workspace_id: int | None = None,
 ) -> None:
     """Record a write. The actor is a hash of the API key (or the client IP), never the key.
 
@@ -34,6 +35,7 @@ def record_audit(
                 resource_id=None if resource_id is None else str(resource_id),
                 details=dict(details or {}),
                 request_id=getattr(request.state, "request_id", None),
+                workspace_id=workspace_id,
             )
         )
     except Exception:

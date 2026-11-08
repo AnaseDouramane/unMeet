@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from app.api.audit import record_audit
-from app.api.auth import require_api_key
 from app.api.dependencies import ApiDependencies, get_dependencies
 from app.api.errors import ApiError
+from app.api.principal import get_principal, require_manager
 from app.api.routes.signals import _signal_response
 from app.api.schemas import (
     SignalListResponse,
@@ -11,7 +11,9 @@ from app.api.schemas import (
     TopicListResponse,
     TopicResponse,
 )
+from app.billing.plans import plan_for
 from app.signals.schemas import MAX_SIGNAL_LIMIT
+from app.tenancy.schemas import Principal
 from app.topics.matching import topic_signal_query
 from app.topics.repository import DuplicateTopicError
 from app.topics.schemas import Topic, TopicDefinition
@@ -35,29 +37,46 @@ def _topic_response(topic: Topic) -> TopicResponse:
     )
 
 
-def _get_topic(dependencies: ApiDependencies, topic_id: int) -> Topic:
-    topic = dependencies.topic_store.get(topic_id)
+def _get_topic(dependencies: ApiDependencies, principal: Principal, topic_id: int) -> Topic:
+    # A topic of another workspace is reported exactly like a missing one.
+    topic = dependencies.topic_store.get(topic_id, principal.workspace_id)
     if topic is None:
         raise ApiError(404, "topic_not_found", f"topic {topic_id} does not exist")
     return topic
 
 
 @router.get("", response_model=TopicListResponse)
-def list_topics(dependencies: ApiDependencies = Depends(get_dependencies)) -> TopicListResponse:
-    return TopicListResponse(items=[_topic_response(t) for t in dependencies.topic_store.list()])
+def list_topics(
+    principal: Principal = Depends(get_principal),
+    dependencies: ApiDependencies = Depends(get_dependencies),
+) -> TopicListResponse:
+    topics = dependencies.topic_store.list(principal.workspace_id)
+    return TopicListResponse(items=[_topic_response(t) for t in topics])
 
 
-@router.post(
-    "",
-    response_model=TopicResponse,
-    status_code=201,
-    dependencies=[Depends(require_api_key)],
-)
+@router.post("", response_model=TopicResponse, status_code=201)
 def create_topic(
     request: TopicCreateRequest,
     http_request: Request,
+    principal: Principal = Depends(require_manager),
     dependencies: ApiDependencies = Depends(get_dependencies),
 ) -> TopicResponse:
+    workspace = dependencies.tenancy.get_workspace(principal.workspace_id)
+    plan = plan_for(workspace.plan if workspace else "free")
+    if dependencies.topic_store.count(principal.workspace_id) >= plan.max_topics:
+        raise ApiError(
+            402,
+            "plan_limit_reached",
+            f"the {plan.name} plan allows {plan.max_topics} topic(s); upgrade to add more",
+            {"limit": "topics", "plan": plan.name, "max": plan.max_topics},
+        )
+    if request.webhook_url and not plan.webhooks:
+        raise ApiError(
+            402,
+            "plan_limit_reached",
+            f"webhooks are not included in the {plan.name} plan",
+            {"limit": "webhooks", "plan": plan.name},
+        )
     try:
         definition = TopicDefinition(
             name=request.name,
@@ -69,7 +88,7 @@ def create_topic(
             max_distance=request.max_distance,
             webhook_url=request.webhook_url,
         )
-        topic = dependencies.topic_store.create(definition)
+        topic = dependencies.topic_store.create(definition, principal.workspace_id)
         record_audit(
             http_request,
             dependencies,
@@ -77,6 +96,7 @@ def create_topic(
             "topic",
             topic.id,
             {"name": topic.name, "has_webhook": topic.webhook_url is not None},
+            workspace_id=principal.workspace_id,
         )
         return _topic_response(topic)
     except DuplicateTopicError as error:
@@ -85,15 +105,23 @@ def create_topic(
         raise ApiError(400, "invalid_topic", str(error)) from error
 
 
-@router.delete("/{topic_id}", status_code=204, dependencies=[Depends(require_api_key)])
+@router.delete("/{topic_id}", status_code=204)
 def delete_topic(
     topic_id: int,
     http_request: Request,
+    principal: Principal = Depends(require_manager),
     dependencies: ApiDependencies = Depends(get_dependencies),
 ) -> Response:
-    if not dependencies.topic_store.delete(topic_id):
+    if not dependencies.topic_store.delete(topic_id, principal.workspace_id):
         raise ApiError(404, "topic_not_found", f"topic {topic_id} does not exist")
-    record_audit(http_request, dependencies, "topic.delete", "topic", topic_id)
+    record_audit(
+        http_request,
+        dependencies,
+        "topic.delete",
+        "topic",
+        topic_id,
+        workspace_id=principal.workspace_id,
+    )
     return Response(status_code=204)
 
 
@@ -102,9 +130,10 @@ def topic_signals(
     topic_id: int,
     limit: int = Query(default=50, ge=1, le=MAX_SIGNAL_LIMIT),
     offset: int = Query(default=0, ge=0),
+    principal: Principal = Depends(get_principal),
     dependencies: ApiDependencies = Depends(get_dependencies),
 ) -> SignalListResponse:
-    topic = _get_topic(dependencies, topic_id)
+    topic = _get_topic(dependencies, principal, topic_id)
     query, description = topic_signal_query(topic, limit=limit, offset=offset)
     signals = dependencies.signal_reader.find(query, description)
     return SignalListResponse(

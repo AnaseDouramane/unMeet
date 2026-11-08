@@ -6,6 +6,7 @@ from app.api.app import create_app
 from app.api.dependencies import ApiDependencies, EmptyAnalyticsReadFacade
 from app.audit.log import AuditEvent, InMemoryAuditLog
 from app.config import settings as base_settings
+from app.tenancy.store import InMemoryTenancyStore
 from app.topics.store import InMemoryTopicStore
 
 API_KEY = "test-key-123"
@@ -25,6 +26,13 @@ class BrokenAudit:
         return ()
 
 
+def team_tenancy() -> InMemoryTenancyStore:
+    """A tenancy store whose default workspace is on the team plan (tests act as the operator)."""
+    tenancy = InMemoryTenancyStore()
+    tenancy.set_plan(tenancy.ensure_default_workspace().id, "team")
+    return tenancy
+
+
 def _client(audit=None):
     audit = audit or InMemoryAuditLog()
     app = create_app(
@@ -32,6 +40,7 @@ def _client(audit=None):
             analytics_reader=EmptyAnalyticsReadFacade(),
             semantic_search=NoSearch(),
             topic_store=InMemoryTopicStore(),
+            tenancy=team_tenancy(),
             audit_log=audit,
         ),
         settings=replace(base_settings, api_key=API_KEY, environment="production"),

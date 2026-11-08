@@ -18,6 +18,8 @@ from app.analytics.schemas import (
 )
 from app.analytics.service import AnalyticsService
 from app.audit.log import AuditLog, AuditLogRepository, InMemoryAuditLog
+from app.auth.jwt import JwtVerifier, TokenVerifier
+from app.config import Settings
 from app.database.repository import ClusterRepository, SourceItemRepository
 from app.embeddings.embedding_service import EmbeddingService
 from app.errors import DatabaseUnavailableError
@@ -28,6 +30,8 @@ from app.opportunities.ranking import (
 )
 from app.privacy.service import PrivacyRepository
 from app.signals.service import EmptySignalReader, RepositorySignalReader, SignalReader
+from app.tenancy.repository import TenancyRepository
+from app.tenancy.store import InMemoryTenancyStore, TenancyStore
 from app.topics.repository import TopicRepository
 from app.topics.store import InMemoryTopicStore, TopicStore
 from app.usage.llm_usage import LlmUsageRepository, UsageTotals
@@ -264,10 +268,12 @@ class ApiDependencies:
     usage_reader: UsageReader = field(default_factory=EmptyUsageReader)
     privacy: PrivacyService = field(default_factory=NoPrivacyService)
     freshness_reader: FreshnessReader = field(default_factory=EmptyFreshnessReader)
+    tenancy: TenancyStore = field(default_factory=InMemoryTenancyStore)
+    token_verifier: TokenVerifier | None = None
 
 
-def build_default_dependencies(embedding_model: str) -> ApiDependencies:
-    embedding_service = EmbeddingService(embedding_model)
+def build_default_dependencies(settings: Settings) -> ApiDependencies:
+    embedding_service = EmbeddingService(settings.embedding_model)
     return ApiDependencies(
         analytics_reader=RepositoryAnalyticsReadFacade(
             ClusterRepository(),
@@ -280,6 +286,20 @@ def build_default_dependencies(embedding_model: str) -> ApiDependencies:
         usage_reader=LlmUsageRepository(),
         privacy=PrivacyRepository(),
         freshness_reader=RepositoryFreshnessReader(SourceItemRepository()),
+        tenancy=TenancyRepository(),
+        token_verifier=build_token_verifier(settings),
+    )
+
+
+def build_token_verifier(settings: Settings) -> TokenVerifier | None:
+    """A JWT verifier when login is configured, otherwise None (API keys only)."""
+    if not (settings.auth_jwt_secret or settings.auth_jwks_url):
+        return None
+    return JwtVerifier(
+        secret=settings.auth_jwt_secret,
+        jwks_url=None if settings.auth_jwt_secret else settings.auth_jwks_url,
+        issuer=settings.auth_jwt_issuer,
+        audience=settings.auth_jwt_audience,
     )
 
 

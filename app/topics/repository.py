@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -20,9 +20,10 @@ class TopicRepository:
     def __init__(self, session_factory: Callable[[], Session] = SessionLocal) -> None:
         self._session_factory = session_factory
 
-    def create(self, definition: TopicDefinition) -> Topic:
+    def create(self, definition: TopicDefinition, workspace_id: int) -> Topic:
         with self._session_factory() as session:
             model = TrackedTopicModel(
+                workspace_id=workspace_id,
                 name=definition.name.strip(),
                 description=definition.description.strip() if definition.description else None,
                 intents=list(definition.intents),
@@ -41,24 +42,39 @@ class TopicRepository:
             session.refresh(model)
             return _to_topic(model)
 
-    def list(self) -> tuple[Topic, ...]:
+    def list(self, workspace_id: int | None = None) -> tuple[Topic, ...]:
+        statement = select(TrackedTopicModel).order_by(TrackedTopicModel.id)
+        if workspace_id is not None:
+            statement = statement.where(TrackedTopicModel.workspace_id == workspace_id)
         with self._session_factory() as session:
-            models = session.scalars(select(TrackedTopicModel).order_by(TrackedTopicModel.id))
-            return tuple(_to_topic(model) for model in models)
+            return tuple(_to_topic(model) for model in session.scalars(statement))
 
-    def get(self, topic_id: int) -> Topic | None:
+    def get(self, topic_id: int, workspace_id: int | None = None) -> Topic | None:
         with self._session_factory() as session:
             model = session.get(TrackedTopicModel, topic_id)
-            return None if model is None else _to_topic(model)
+            if model is None or (workspace_id is not None and model.workspace_id != workspace_id):
+                return None
+            return _to_topic(model)
 
-    def delete(self, topic_id: int) -> bool:
+    def delete(self, topic_id: int, workspace_id: int | None = None) -> bool:
         with self._session_factory() as session:
             model = session.get(TrackedTopicModel, topic_id)
-            if model is None:
+            if model is None or (workspace_id is not None and model.workspace_id != workspace_id):
                 return False
             session.delete(model)
             session.commit()
             return True
+
+    def count(self, workspace_id: int) -> int:
+        with self._session_factory() as session:
+            return int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(TrackedTopicModel)
+                    .where(TrackedTopicModel.workspace_id == workspace_id)
+                )
+                or 0
+            )
 
     def mark_delivered(self, topic_id: int, delivered_at: datetime) -> None:
         if delivered_at.tzinfo is None:
@@ -74,6 +90,7 @@ class TopicRepository:
 def _to_topic(model: TrackedTopicModel) -> Topic:
     return Topic(
         id=model.id,
+        workspace_id=model.workspace_id,
         name=model.name,
         description=model.description,
         intents=tuple(model.intents or ()),

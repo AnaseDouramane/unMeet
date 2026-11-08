@@ -20,9 +20,16 @@ def _matches(session_factory: sessionmaker[Session]) -> dict[tuple[int, int], st
 
 
 def _topics(session_factory: sessionmaker[Session]) -> tuple[int, int]:
+    from app.tenancy.repository import TenancyRepository
+
+    workspace = TenancyRepository(session_factory).create_workspace("T", "t@t.example").id
     repository = TopicRepository(session_factory)
-    first = repository.create(TopicDefinition(name="CRM hygiene", description="duplicate contacts"))
-    second = repository.create(TopicDefinition(name="Billing", description="failed invoices"))
+    first = repository.create(
+        TopicDefinition(name="CRM hygiene", description="duplicate contacts"), workspace
+    )
+    second = repository.create(
+        TopicDefinition(name="Billing", description="failed invoices"), workspace
+    )
     return first.id, second.id
 
 

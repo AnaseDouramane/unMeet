@@ -47,9 +47,11 @@ def _ids(session_factory) -> set[str]:
 
 
 def test_erasing_an_author_deletes_their_items_everywhere_and_suppresses_them(
-    session_factory: sessionmaker[Session],
+    session_factory: sessionmaker[Session], workspace_id: int
 ) -> None:
-    topic = TopicRepository(session_factory).create(TopicDefinition(name="CRM", description="crm"))
+    topic = TopicRepository(session_factory).create(
+        TopicDefinition(name="CRM", description="crm"), workspace_id
+    )
     items = SourceItemRepository(session_factory)
     _save(items, "1", "Alice", matches=[TopicMatch(topic.id, "why")])
     _save(items, "2", "alice", problem=False)  # case-insensitive
