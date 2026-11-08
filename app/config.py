@@ -34,6 +34,15 @@ def _enabled_sources() -> tuple[str, ...]:
     )
 
 
+def _hackernews_searches() -> tuple[str, ...]:
+    """Raw ``tag`` or ``tag:query`` specs separated by ``;`` (parsed by the connector factory)."""
+    return tuple(
+        spec.strip()
+        for spec in os.getenv("HACKERNEWS_SEARCHES", "ask_hn").split(";")
+        if spec.strip()
+    )
+
+
 def _hackernews_feeds() -> tuple[str, ...]:
     normalized_feeds: list[str] = []
     seen_feeds: set[str] = set()
@@ -100,6 +109,11 @@ class Settings:
     hackernews_feeds: tuple[str, ...] = _hackernews_feeds()
     hackernews_limit: int = _positive_integer_setting("HACKERNEWS_LIMIT", 500)
     hackernews_max_workers: int = _positive_integer_setting("HACKERNEWS_MAX_WORKERS", 16)
+    hackernews_searches: tuple[str, ...] = _hackernews_searches()
+    hackernews_search_limit: int = _positive_integer_setting("HACKERNEWS_SEARCH_LIMIT", 300)
+    hackernews_search_lookback_seconds: int = _positive_integer_setting(
+        "HACKERNEWS_SEARCH_LOOKBACK_SECONDS", 3600
+    )
     hackernews_include_comments: bool = _boolean_setting("HACKERNEWS_INCLUDE_COMMENTS", True)
     hackernews_max_comments_per_story: int = _positive_integer_setting(
         "HACKERNEWS_MAX_COMMENTS_PER_STORY", 20

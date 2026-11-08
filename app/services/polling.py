@@ -79,8 +79,9 @@ class PollingWorker:
 
     @staticmethod
     def _name(connector: SourceConnector) -> str:
-        source = getattr(connector, "source", connector.__class__.__name__)
-        return source if isinstance(source, str) and source.strip() else "unknown"
+        # ``name`` tells apart several connectors that feed the same ``source``.
+        name = getattr(connector, "name", None) or getattr(connector, "source", None)
+        return name if isinstance(name, str) and name.strip() else connector.__class__.__name__
 
     def poll_once(self) -> list[SourcePollResult]:
         results: list[SourcePollResult] = []

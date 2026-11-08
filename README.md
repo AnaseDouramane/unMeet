@@ -72,7 +72,8 @@ Re-run only clustering, labeling and trends on stored data with `python -m scrip
 
 | Variable | Purpose |
 |----------|---------|
-| `INGESTION_SOURCES` | `hackernews,reddit,github` in execution order |
+| `INGESTION_SOURCES` | `hackernews,hackernews_search,reddit,github` in execution order |
+| `HACKERNEWS_SEARCHES` | for `hackernews_search`: `tag` or `tag:query` specs separated by `;` (tags: comment, story, ask_hn, show_hn) |
 | `HACKERNEWS_FEEDS`, `HACKERNEWS_INCLUDE_COMMENTS` | feeds to read; comments carry most pain points |
 | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_SUBREDDITS` | Reddit OAuth app (required for anything beyond local tests) |
 | `CLASSIFIER_BACKEND` | `llm` (signals) or `qwen3` (local, binary) |
