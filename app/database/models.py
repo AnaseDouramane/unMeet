@@ -280,3 +280,15 @@ class LlmUsageModel(Base):
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class ErasureRequestModel(Base):
+    """An author who asked to be forgotten; kept as a hash so we never re-ingest their posts."""
+
+    __tablename__ = "erasure_requests"
+
+    source: Mapped[str] = mapped_column(String(50), primary_key=True)
+    author_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

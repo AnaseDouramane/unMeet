@@ -20,6 +20,7 @@ from app.api.routes import (
     clusters,
     health,
     opportunities,
+    privacy,
     search,
     signals,
     topics,
@@ -66,6 +67,7 @@ def create_app(
     app.include_router(topics.router)
     app.include_router(audit.router)
     app.include_router(usage.router)
+    app.include_router(privacy.router)
     return app
 
 

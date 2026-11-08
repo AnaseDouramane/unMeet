@@ -26,6 +26,7 @@ from app.opportunities.ranking import (
     OpportunityRankingResult,
     OpportunityRankingService,
 )
+from app.privacy.service import PrivacyRepository
 from app.signals.service import EmptySignalReader, RepositorySignalReader, SignalReader
 from app.topics.repository import TopicRepository
 from app.topics.store import InMemoryTopicStore, TopicStore
@@ -215,6 +216,15 @@ class RepositorySemanticSearch:
         )
 
 
+class PrivacyService(Protocol):
+    def erase_author(self, source: str, author: str) -> int: ...
+
+
+class NoPrivacyService:
+    def erase_author(self, source: str, author: str) -> int:
+        return 0
+
+
 class UsageReader(Protocol):
     def totals(self, since: datetime | None = None) -> tuple[UsageTotals, ...]: ...
 
@@ -232,6 +242,7 @@ class ApiDependencies:
     topic_store: TopicStore = field(default_factory=InMemoryTopicStore)
     audit_log: AuditLog = field(default_factory=InMemoryAuditLog)
     usage_reader: UsageReader = field(default_factory=EmptyUsageReader)
+    privacy: PrivacyService = field(default_factory=NoPrivacyService)
 
 
 def build_default_dependencies(embedding_model: str) -> ApiDependencies:
@@ -246,6 +257,7 @@ def build_default_dependencies(embedding_model: str) -> ApiDependencies:
         topic_store=TopicRepository(),
         audit_log=AuditLogRepository(),
         usage_reader=LlmUsageRepository(),
+        privacy=PrivacyRepository(),
     )
 
 
