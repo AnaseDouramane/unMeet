@@ -143,6 +143,9 @@ class Settings:
     llm_usage_tracking: bool = _boolean_setting("LLM_USAGE_TRACKING", True)
     retention_non_signal_days: int = _positive_integer_setting("RETENTION_NON_SIGNAL_DAYS", 30)
     retention_signal_days: int = _positive_integer_setting("RETENTION_SIGNAL_DAYS", 365)
+    ingestion_stale_after_seconds: int = _positive_integer_setting(
+        "INGESTION_STALE_AFTER_SECONDS", 21600
+    )
     privacy_contact_email: str | None = os.getenv("PRIVACY_CONTACT_EMAIL") or None
     labeling_backend: str = os.getenv("LABELING_BACKEND", "keywords").strip().lower()
     classification_batch_size: int = _positive_integer_setting("CLASSIFICATION_BATCH_SIZE", 1)

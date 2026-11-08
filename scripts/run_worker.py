@@ -16,13 +16,14 @@ import threading
 from app.config import Settings
 from app.ingestion.cursors import SourceCursorRepository
 from app.services.polling import PollingWorker
+from app.utils.logging import configure_logging
 from scripts.run_unmeet import build_ingestion
 
 logger = logging.getLogger("unmeet.worker")
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    configure_logging()
     try:
         settings = Settings()
         ingestion = build_ingestion(settings)

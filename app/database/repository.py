@@ -232,6 +232,28 @@ class SourceItemRepository:
             relevance_reason=relevance_reason,
         )
 
+    def latest_processed_by_source(self) -> tuple[tuple[str, datetime, int], ...]:
+        """(source, newest processed_at, item count) for every source with processed items."""
+        statement = (
+            select(
+                SourceItemModel.source,
+                func.max(SourceItemModel.processed_at),
+                func.count(),
+            )
+            .where(SourceItemModel.processed_at.is_not(None))
+            .group_by(SourceItemModel.source)
+            .order_by(SourceItemModel.source)
+        )
+        session = self._open_session()
+        try:
+            return tuple(
+                (source, moment, int(count))
+                for source, moment, count in session.execute(statement)
+                if moment is not None
+            )
+        finally:
+            self._close_session(session)
+
     def count_problems_by_source(self) -> tuple[tuple[str, int], ...]:
         session = self._open_session()
         try:

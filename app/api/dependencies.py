@@ -216,6 +216,26 @@ class RepositorySemanticSearch:
         )
 
 
+class FreshnessReader(Protocol):
+    def latest_by_source(self) -> tuple[tuple[str, datetime, int], ...]: ...
+
+
+class EmptyFreshnessReader:
+    def latest_by_source(self) -> tuple[tuple[str, datetime, int], ...]:
+        return ()
+
+
+class RepositoryFreshnessReader:
+    def __init__(self, repository: SourceItemRepository) -> None:
+        self._repository = repository
+
+    def latest_by_source(self) -> tuple[tuple[str, datetime, int], ...]:
+        try:
+            return self._repository.latest_processed_by_source()
+        except SQLAlchemyError as error:
+            raise DatabaseUnavailableError("database is unavailable") from error
+
+
 class PrivacyService(Protocol):
     def erase_author(self, source: str, author: str) -> int: ...
 
@@ -243,6 +263,7 @@ class ApiDependencies:
     audit_log: AuditLog = field(default_factory=InMemoryAuditLog)
     usage_reader: UsageReader = field(default_factory=EmptyUsageReader)
     privacy: PrivacyService = field(default_factory=NoPrivacyService)
+    freshness_reader: FreshnessReader = field(default_factory=EmptyFreshnessReader)
 
 
 def build_default_dependencies(embedding_model: str) -> ApiDependencies:
@@ -258,6 +279,7 @@ def build_default_dependencies(embedding_model: str) -> ApiDependencies:
         audit_log=AuditLogRepository(),
         usage_reader=LlmUsageRepository(),
         privacy=PrivacyRepository(),
+        freshness_reader=RepositoryFreshnessReader(SourceItemRepository()),
     )
 
 

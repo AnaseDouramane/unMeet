@@ -96,8 +96,13 @@ Re-run only clustering, labeling and trends on stored data with `python -m scrip
 | `GET /api/v1/topics/{id}/signals` | best-matching signals for a topic |
 | `GET /api/v1/opportunities`, `/clusters`, `/trends`, `/analytics/summary` | clustered problems and trends |
 | `GET /api/v1/search` | semantic search over problems |
+| `GET /health`, `GET /health/ingestion` | liveness; 503 when a source with data went quiet |
+| `GET /api/v1/audit`, `GET /api/v1/usage/llm` | audit trail of writes; LLM tokens and cost (API key) |
+| `POST /api/v1/privacy/erasure` | delete everything stored about an author (API key) |
 
-Interactive docs at `/docs` when the API is running.
+Interactive docs at `/docs` when the API is running. Reads and writes are rate limited per client
+(`RATE_LIMIT_READ_PER_MINUTE`, `RATE_LIMIT_WRITE_PER_MINUTE`). See [docs/DEPLOY.md](docs/DEPLOY.md) for
+operations and [docs/GDPR.md](docs/GDPR.md) for data protection.
 
 ## Development
 
