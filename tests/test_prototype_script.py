@@ -37,7 +37,7 @@ def test_setup_only_creates_a_team_workspace_example_topics_and_one_key(
 
     out = capsys.readouterr().out
     ((workspace, _),) = tenancy.workspaces_for_user(tenancy.get_or_create_user("me@acme.test").id)
-    assert workspace.name == "Prototype" and workspace.plan == "team"
+    assert workspace.name == "Prototype (examples)" and workspace.plan == "team"
     assert topics.count(workspace.id) == 4 and all(t.keywords for t in topics.list(workspace.id))
     assert "API key (shown once" in out and "um_" in out and "Inbox: 2 new" in out
     assert f"--workspace {workspace.id}" in out
@@ -136,3 +136,37 @@ def test_a_database_that_cannot_be_adopted_stops_with_a_clear_way_out(monkeypatc
     with pytest.raises(SystemExit) as stopped:
         prototype._migrate()
     assert "docker compose down -v" in str(stopped.value) and "DuplicateTable" in str(stopped.value)
+
+
+def test_each_site_gets_its_own_workspace_so_topics_never_mix(world, monkeypatch) -> None:
+    from app.topics.schemas import TopicDefinition
+
+    tenancy, topics = world
+    monkeypatch.setattr(
+        prototype, "Settings", lambda: replace(Settings(), llm_model="m", llm_api_key="k")
+    )
+    proposals = {
+        "https://www.apple.com/": [
+            TopicDefinition(name="Phones", description="d", keywords=("iphone alternative",))
+        ],
+        "https://posthog.com": [
+            TopicDefinition(name="Analytics", description="d", keywords=("self hosted analytics",))
+        ],
+    }
+    monkeypatch.setattr(
+        prototype, "_topics_from_site", lambda s, url, ws: ("summary", proposals[url])
+    )
+
+    prototype.main(["--owner", "me@acme.test", "--site", "https://www.apple.com/", "--no-ingest"])
+    prototype.main(["--owner", "me@acme.test", "--site", "https://posthog.com", "--no-ingest"])
+
+    user = tenancy.get_or_create_user("me@acme.test")
+    names = {w.name: w.id for w, _ in tenancy.workspaces_for_user(user.id)}
+    assert set(names) == {"Prototype – apple.com", "Prototype – posthog.com"}
+    assert [t.name for t in topics.list(names["Prototype – posthog.com"])] == ["Analytics"]
+    assert [t.name for t in topics.list(names["Prototype – apple.com"])] == ["Phones"]
+
+
+def test_workspace_names_come_from_the_site_host() -> None:
+    assert prototype.workspace_name("https://www.PostHog.com/pricing") == "Prototype – posthog.com"
+    assert prototype.workspace_name(None) == "Prototype (examples)"
