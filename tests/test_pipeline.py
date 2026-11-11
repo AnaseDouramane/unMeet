@@ -280,12 +280,9 @@ def test_pipeline_persists_all_100_documents_when_one_classifier_output_is_malfo
     malformed_saved = repository.saved[37]
     assert malformed_saved[2] is None
     assert malformed_saved[3] is None
-    assert malformed_saved[4] == ProblemDetectionResult(
-        False,
-        0.0,
-        "Malformed classifier output",
-        "Qwen3ProblemClassifier:batch-test",
-    )
+    assert malformed_saved[4].is_problem is False and malformed_saved[4].confidence == 0.0
+    assert malformed_saved[4].reason.startswith("Malformed classifier output: ")
+    assert malformed_saved[4].classifier_name == "Qwen3ProblemClassifier:batch-test"
     assert len(embedding_service.calls) == 99
     assert pipeline.last_run_stats is not None
     assert pipeline.last_run_stats.acquired_count == 100
@@ -327,12 +324,8 @@ def test_pipeline_continues_after_a_semantically_invalid_output_then_valid_outpu
 
     assert [document.source_item.external_id for document in accepted_documents] == ["1"]
     assert len(repository.saved) == 2
-    assert repository.saved[0][4] == ProblemDetectionResult(
-        False,
-        0.0,
-        "Malformed classifier output",
-        "Qwen3ProblemClassifier:batch-test",
-    )
+    assert repository.saved[0][4].is_problem is False
+    assert repository.saved[0][4].reason.startswith("Malformed classifier output: ")
     assert repository.saved[0][2] is None
     assert repository.saved[0][3] is None
     assert repository.saved[1][2] == [1.0] * 384

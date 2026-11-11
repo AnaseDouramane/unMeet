@@ -175,16 +175,32 @@ class ChatCompletionsClient:
         raise LLMRequestError("LLM request failed after retries")  # pragma: no cover
 
 
+_THINKING = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
 def parse_json_object(content: str) -> dict[str, Any]:
-    """Parse a JSON object, tolerating a surrounding markdown code fence."""
-    candidate = content.strip()
+    """Parse a JSON object from a model answer.
+
+    Tolerates what models commonly wrap around it: a markdown code fence, a reasoning block
+    (``<think>...</think>``, emitted by reasoning models such as Qwen3 or DeepSeek-R1) and short
+    text before or after the object.
+    """
+    candidate = _THINKING.sub("", content).strip()
     fenced = re.fullmatch(r"```(?:json)?\s*(\{.*\})\s*```", candidate, re.DOTALL)
     if fenced is not None:
         candidate = fenced.group(1)
     try:
         payload = json.loads(candidate)
     except json.JSONDecodeError as error:
-        raise LLMResponseError("LLM output is not valid JSON") from error
+        start, end = candidate.find("{"), candidate.rfind("}")
+        if start == -1 or end <= start:
+            preview = " ".join(content.split())[:80] or "empty answer"
+            raise LLMResponseError(f"LLM output is not JSON (starts with: {preview!r})") from error
+        try:
+            payload = json.loads(candidate[start : end + 1])
+        except json.JSONDecodeError as inner:
+            preview = " ".join(content.split())[:80]
+            raise LLMResponseError(f"LLM output is not valid JSON (starts with: {preview!r})") from inner
     if not isinstance(payload, dict):
         raise LLMResponseError("LLM output must be a JSON object")
     return payload

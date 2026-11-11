@@ -227,3 +227,50 @@ def test_stats_count_how_many_items_matched_a_topic() -> None:
 
     pipeline, _ = _run(PlainClassifier())
     assert pipeline.last_run_stats is not None and pipeline.last_run_stats.matched_count == 0
+
+
+def test_a_run_stops_when_the_model_answers_cannot_be_read() -> None:
+    from app.services.pipeline import MALFORMED_ABORT_AFTER, UnreadableModelOutputError
+
+    class Broken(PlainClassifier):
+        def classify(self, text: str) -> ProblemDetectionResult:
+            self.calls.append(text)
+            raise MalformedClassifierOutputError("LLM output is not JSON (starts with: '<html>')")
+
+    classifier = Broken()
+    pipeline = Pipeline(
+        settings=type("S", (), {"environment": "test"})(),
+        connector=Connector([f"crm post {i}" for i in range(30)]),
+        preprocessing_service=PreprocessingService(),
+        repository=Repo(),
+        embedding_service=AxisEmbedder(),
+        problem_detection_service=ProblemDetectionService(classifier),
+    )
+    with pytest.raises(UnreadableModelOutputError, match="Check LLM_MODEL"):
+        pipeline.run()
+    # It stops within the batch being classified (8 posts per worker), not after all 30.
+    assert MALFORMED_ABORT_AFTER <= len(classifier.calls) <= MALFORMED_ABORT_AFTER + 8
+
+
+def test_occasional_bad_answers_do_not_stop_a_run() -> None:
+    class Flaky(PlainClassifier):
+        def classify(self, text: str) -> ProblemDetectionResult:
+            self.calls.append(text)
+            if len(self.calls) % 3 == 0:
+                raise MalformedClassifierOutputError("bad")
+            return ProblemDetectionResult(True, 0.9, "r", self.classifier_name)
+
+    classifier = Flaky()
+    pipeline = Pipeline(
+        settings=type("S", (), {"environment": "test"})(),
+        connector=Connector([f"crm post {i}" for i in range(30)]),
+        preprocessing_service=PreprocessingService(),
+        repository=Repo(),
+        embedding_service=AxisEmbedder(),
+        problem_detection_service=ProblemDetectionService(classifier),
+    )
+    pipeline.run()
+    assert (
+        pipeline.last_run_stats is not None
+        and pipeline.last_run_stats.classification_error_count == 10
+    )

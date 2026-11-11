@@ -30,6 +30,15 @@ class PipelineRunStats:
     matched_count: int = 0
 
 
+# Stop a run when the model's answers cannot be read at all: continuing would spend tokens
+# on every post and store nothing useful.
+MALFORMED_ABORT_AFTER = 10
+
+
+class UnreadableModelOutputError(RuntimeError):
+    pass
+
+
 class Pipeline:
     def __init__(
         self,
@@ -74,6 +83,7 @@ class Pipeline:
         self.last_run_stats = None
 
         self._accepted = []
+        self._consecutive_malformed = 0
         self._counts = {
             "acquired": 0,
             "non_problem": 0,
@@ -175,6 +185,16 @@ class Pipeline:
             detection_result, malformed = next(classified)
             if malformed:
                 self._counts["errors"] += 1
+                self._consecutive_malformed += 1
+            else:
+                self._consecutive_malformed = 0
+            if self._consecutive_malformed >= MALFORMED_ABORT_AFTER:
+                raise UnreadableModelOutputError(
+                    f"the last {MALFORMED_ABORT_AFTER} answers of the model could not be read "
+                    f"(last reason: {detection_result.reason}). Check LLM_MODEL: it must be a chat "
+                    "model that answers in JSON (for Groq, e.g. openai/gpt-oss-120b); the warnings "
+                    "above show what it returned."
+                )
             if detection_result.is_problem:
                 embedding = (
                     decision.embedding
