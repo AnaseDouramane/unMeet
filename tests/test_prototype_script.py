@@ -114,3 +114,25 @@ def test_a_site_that_cannot_be_read_stops_with_the_reason(world, monkeypatch, ca
         == 1
     )
     assert "the host must be public" in capsys.readouterr().err
+
+
+def test_migration_adopts_older_databases_through_init_db(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr("scripts.init_db.main", lambda: calls.append("init_db"))
+    prototype._migrate()
+    assert calls == ["init_db"]
+
+
+def test_a_database_that_cannot_be_adopted_stops_with_a_clear_way_out(monkeypatch) -> None:
+    from sqlalchemy.exc import ProgrammingError
+
+    class DuplicateTable(Exception):
+        pass
+
+    def broken() -> None:
+        raise ProgrammingError("CREATE TABLE cluster_runs", {}, DuplicateTable("exists"))
+
+    monkeypatch.setattr("scripts.init_db.main", broken)
+    with pytest.raises(SystemExit) as stopped:
+        prototype._migrate()
+    assert "docker compose down -v" in str(stopped.value) and "DuplicateTable" in str(stopped.value)

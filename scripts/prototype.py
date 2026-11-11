@@ -15,8 +15,6 @@ import argparse
 import sys
 from dataclasses import replace
 
-from alembic import command
-
 from app.config import Settings
 from app.dogfood import DOGFOOD_TOPICS
 from app.inbox.repository import InboxRepository
@@ -28,9 +26,19 @@ WORKSPACE_NAME = "Prototype"
 
 
 def _migrate() -> None:
-    from scripts.init_db import alembic_config
+    """Bring the schema up to date, adopting databases created by older versions (init_db)."""
+    from sqlalchemy.exc import ProgrammingError
 
-    command.upgrade(alembic_config(), "head")
+    from scripts.init_db import main as init_db
+
+    try:
+        init_db()
+    except ProgrammingError as error:
+        raise SystemExit(
+            "The database already has tables this version cannot adopt "
+            f"({error.orig.__class__.__name__}). If it only holds test data, reset it with "
+            "`docker compose down -v` then `docker compose up -d`, and run this again."
+        ) from error
 
 
 def _topics_from_site(
