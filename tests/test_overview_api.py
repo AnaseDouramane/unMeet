@@ -62,6 +62,17 @@ def build():
             llm_requests=14,
             problems=5,
             matched=2,
+            workspace_id=workspace.id,
+        )
+    )
+    runs.record(
+        IngestionRun(
+            "hackernews_topics",
+            T0 + timedelta(hours=1),
+            T0 + timedelta(hours=1),
+            "ok",
+            acquired=99,
+            workspace_id=other.id,
         )
     )
     runs.record(
@@ -114,7 +125,7 @@ def test_the_overview_has_the_profile_topics_with_counts_runs_and_usage() -> Non
             "new": 2,
         }
     ]  # the other workspace's topic is not here
-    latest, older = body["runs"]
+    latest, older = body["runs"]  # its own run and the shared one; not the other workspace's
     assert (latest["acquired"], latest["gated_out"], latest["llm_requests"], latest["matched"]) == (
         60,
         8,
