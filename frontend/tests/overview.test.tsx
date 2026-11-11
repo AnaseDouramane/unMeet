@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OverviewView } from "@/components/overview/overview-view";
 import { funnelSteps, RunFunnel } from "@/components/overview/run-funnel";
 import { api, ApiClientError } from "@/lib/api";
+import { saveCredential } from "@/lib/auth";
 import type { Overview, OverviewRun } from "@/lib/types";
 
 const run: OverviewRun = {
@@ -35,6 +36,7 @@ const overview: Overview = {
 
 beforeEach(() => vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "http://api.test"));
 afterEach(() => {
+  window.sessionStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
@@ -100,5 +102,29 @@ describe("overview page", () => {
     vi.spyOn(api, "getOverview").mockRejectedValue(new ApiClientError("auth", 401));
     render(<OverviewView />);
     expect(await screen.findByRole("form", { name: "Connect" })).toBeInTheDocument();
+  });
+
+  it("asks for the workspace key when none is set, instead of silently showing another workspace", async () => {
+    vi.spyOn(api, "getOverview").mockResolvedValue({ ...overview, workspace: { ...overview.workspace, name: "Default" } });
+    const { unmount } = render(<OverviewView />);
+    const banner = await screen.findByRole("region", { name: "Connect your workspace" });
+    expect(banner).toHaveTextContent("empty Default workspace because no key is set");
+    expect(within(banner).getByRole("form", { name: "Connect" })).toBeInTheDocument();
+    unmount();
+
+    saveCredential("um_abc_secret");
+    vi.spyOn(api, "getWorkspace").mockResolvedValue({ id: 1, name: "Prototype", slug: "p", role: "owner", plan: { name: "team" } } as never);
+    render(<OverviewView />);
+    await screen.findByText("Acme cleans CRM data.");
+    expect(screen.queryByRole("region", { name: "Connect your workspace" })).not.toBeInTheDocument();
+  });
+
+  it("says when every new post was too far from the topics for the AI to read", async () => {
+    vi.spyOn(api, "getOverview").mockResolvedValue({
+      ...overview,
+      runs: [{ ...run, acquired: 3, gated_out: 3, llm_requests: 0, problems: 0, matched: 0 }],
+    });
+    render(<OverviewView />);
+    expect(await screen.findByText(/All 3 new posts were too far from your topics/)).toBeInTheDocument();
   });
 });

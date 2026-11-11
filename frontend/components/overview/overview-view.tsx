@@ -7,6 +7,7 @@ import { ConnectPanel } from "@/components/auth/connect-panel";
 import { RunFunnel } from "@/components/overview/run-funnel";
 import { ErrorState, LoadingSkeleton } from "@/components/ui/states";
 import { api, ApiClientError } from "@/lib/api";
+import { getCredential } from "@/lib/auth";
 import type { Overview } from "@/lib/types";
 
 function when(value: string): string {
@@ -34,9 +35,11 @@ export function OverviewView() {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needsLogin, setNeedsLogin] = useState(false);
+  const [hasKey, setHasKey] = useState(true);
 
   const load = useCallback(async () => {
     setError(null);
+    setHasKey(Boolean(getCredential()));
     try {
       setData(await api.getOverview());
       setNeedsLogin(false);
@@ -56,9 +59,20 @@ export function OverviewView() {
 
   const last = data.runs[0];
   const totalMatched = data.topics.reduce((sum, topic) => sum + topic.matched, 0);
+  const fresh = last ? Math.max(last.acquired - last.skipped, 0) : 0;
+  const allDropped = Boolean(last) && fresh > 0 && last.gated_out >= fresh;
 
   return (
     <div className="space-y-8">
+      {!hasKey && (
+        <section aria-label="Connect your workspace" className="space-y-3 rounded-xl border border-indigo-200 bg-indigo-50 p-5">
+          <p className="text-sm text-indigo-950">
+            You are looking at the empty <strong>{data.workspace.name}</strong> workspace because no key is set. Paste the key
+            the setup printed (it starts with <code>um_</code>) to see your own workspace.
+          </p>
+          <ConnectPanel onConnected={() => void load()} />
+        </section>
+      )}
       <section aria-label="What we understood" className="rounded-xl border border-slate-200 bg-white p-5">
         <h2 className="text-lg font-semibold">{data.workspace.name}</h2>
         {data.workspace.product_summary ? (
@@ -102,6 +116,12 @@ export function OverviewView() {
             {last.matched === 0 && last.status === "ok" && (
               <div className="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                 <p className="font-medium">Nothing matched this time. Things to try:</p>
+                {allDropped && (
+                  <p className="mt-1">
+                    All {fresh} new post{fresh === 1 ? " was" : "s were"} too far from your topics, so the AI did not read{" "}
+                    {fresh === 1 ? "it" : "them"} (this costs nothing). Clearer topic descriptions and phrases help.
+                  </p>
+                )}
                 <ul className="mt-1 list-disc pl-5">
                   <li>Look further back: add <code>--days 365</code> to the setup command.</li>
                   <li>
