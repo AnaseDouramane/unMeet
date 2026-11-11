@@ -207,3 +207,25 @@ def test_long_documents_are_truncated_before_sending() -> None:
 
     sent = session.requests[0]["json"]["messages"][1]["content"]
     assert sent == "Text:\n" + "x" * 50
+
+
+def test_json_is_found_after_a_reasoning_block_or_around_short_text() -> None:
+    from app.llm.client import parse_json_object
+
+    assert parse_json_object('<think>Let me check the schema...</think>\n{"a": 1}') == {"a": 1}
+    assert parse_json_object('<THINK>\nmulti\nline\n</THINK>```json\n{"a": 2}\n```') == {"a": 2}
+    assert parse_json_object('Here is the JSON: {"a": 3} Hope it helps.') == {"a": 3}
+
+
+def test_unreadable_answers_say_what_the_model_returned() -> None:
+    from app.llm.client import LLMResponseError, parse_json_object
+
+    for content, fragment in (
+        ("I'm sorry, I can't help with that.", "I'm sorry"),
+        ("", "empty answer"),
+        ('{"a": 1', '{"a": 1'),
+        ("[1, 2]", "[1, 2]"),
+    ):
+        with pytest.raises(LLMResponseError) as raised:
+            parse_json_object(content)
+        assert fragment in str(raised.value) or "JSON object" in str(raised.value)

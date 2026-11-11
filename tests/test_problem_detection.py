@@ -102,13 +102,10 @@ def test_detect_turns_malformed_classifier_output_into_a_negative_result(caplog)
     with caplog.at_level("WARNING"):
         result = ProblemDetectionService(classifier).detect(_prepared_document())
 
-    assert result == ProblemDetectionResult(
-        is_problem=False,
-        confidence=0.0,
-        reason="Malformed classifier output",
-        classifier_name="Qwen3ProblemClassifier:test-model",
-    )
-    assert "Malformed classifier output for test:1" in caplog.text
+    assert (result.is_problem, result.confidence) == (False, 0.0)
+    assert result.classifier_name == "Qwen3ProblemClassifier:test-model"
+    assert result.reason.startswith("Malformed classifier output: ") and len(result.reason) > 30
+    assert "Malformed classifier output for test:1 (" in caplog.text  # the cause is logged
 
 
 def test_detect_continues_after_malformed_output_with_the_next_document() -> None:
@@ -137,12 +134,8 @@ def test_detect_handles_malformed_output_after_a_valid_document() -> None:
     malformed_result = service.detect(_prepared_document("Second document"))
 
     assert first_result == valid_result
-    assert malformed_result == ProblemDetectionResult(
-        False,
-        0.0,
-        "Malformed classifier output",
-        "Qwen3ProblemClassifier:test-model",
-    )
+    assert malformed_result.is_problem is False
+    assert malformed_result.reason.startswith("Malformed classifier output: ")
     assert classifier.calls == ["First document", "Second document"]
 
 

@@ -45,18 +45,19 @@ class ProblemDetectionService:
             else:
                 raw = self._classifier.classify(document_text)
             return validate_problem_detection_result(raw), False
-        except MalformedClassifierOutputError:
+        except MalformedClassifierOutputError as error:
             source_item = prepared_document.source_item
             logger.warning(
-                "Malformed classifier output for %s:%s; treating document as non-problem",
+                "Malformed classifier output for %s:%s (%s); treating document as non-problem",
                 source_item.source,
                 source_item.external_id,
+                error,
             )
             return (
                 ProblemDetectionResult(
                     is_problem=False,
                     confidence=0.0,
-                    reason="Malformed classifier output",
+                    reason=f"Malformed classifier output: {error}"[:300],
                     classifier_name=self._classifier_name(),
                 ),
                 True,
