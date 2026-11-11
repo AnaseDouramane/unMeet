@@ -11,7 +11,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Protocol
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -43,6 +43,8 @@ class InboxStore(Protocol):
     ) -> tuple[InboxItem, ...]: ...
 
     def counts(self, workspace_id: int) -> dict[str, int]: ...
+
+    def topic_counts(self, workspace_id: int) -> dict[int, tuple[int, int]]: ...
 
     def signal_text(self, workspace_id: int, signal_id: int) -> str | None: ...
 
@@ -141,6 +143,26 @@ class InboxRepository:
             row = session.execute(statement).first()
             return None if row is None else _to_item(row)
 
+    def topic_counts(self, workspace_id: int) -> dict[int, tuple[int, int]]:
+        """Per topic of the workspace: (matched signals, of which still new)."""
+        statement = text(
+            """
+            SELECT t.id,
+                   count(s.id) AS matched,
+                   count(s.id) FILTER (WHERE st.state IS NULL) AS new
+            FROM tracked_topics t
+            LEFT JOIN signal_topic_matches m ON m.topic_id = t.id
+            LEFT JOIN source_items s ON s.id = m.source_item_id AND s.is_problem IS TRUE
+            LEFT JOIN signal_states st
+                   ON st.source_item_id = s.id AND st.workspace_id = t.workspace_id
+            WHERE t.workspace_id = :workspace_id
+            GROUP BY t.id
+            """
+        )
+        with self._session_factory() as session:
+            rows = session.execute(statement, {"workspace_id": workspace_id})
+            return {int(topic): (int(matched), int(new)) for topic, matched, new in rows}
+
     def signal_text(self, workspace_id: int, signal_id: int) -> str | None:
         """The post's text, only for signals in this workspace's inbox."""
         statement = self._base(workspace_id).where(SourceItemModel.id == signal_id)
@@ -155,9 +177,7 @@ class InboxRepository:
         subquery = self._base(workspace_id).subquery()
         statement = select(subquery.c.state, func.count()).group_by(subquery.c.state)
         with self._session_factory() as session:
-            found = {
-                (state or "new"): int(count) for state, count in session.execute(statement)
-            }
+            found = {(state or "new"): int(count) for state, count in session.execute(statement)}
         return {state: found.get(state, 0) for state in sorted(ALL_STATES)}
 
     def set_state(

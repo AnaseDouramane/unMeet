@@ -15,6 +15,7 @@ import threading
 
 from app.config import Settings
 from app.ingestion.cursors import SourceCursorRepository
+from app.ingestion.runs import IngestionRunRepository
 from app.services.polling import PollingWorker
 from app.utils.logging import configure_logging
 from scripts.run_unmeet import build_ingestion
@@ -38,6 +39,7 @@ def main() -> int:
         interval_seconds=settings.poll_interval_seconds,
         max_backoff_seconds=settings.poll_max_backoff_seconds,
         stall_after_seconds=settings.poll_stall_after_seconds,
+        recorder=IngestionRunRepository(),
     )
     stop = threading.Event()
     for signum in (signal.SIGINT, signal.SIGTERM):

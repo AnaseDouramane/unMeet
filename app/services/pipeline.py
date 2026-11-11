@@ -27,6 +27,7 @@ class PipelineRunStats:
     gated_out_count: int = 0
     suppressed_count: int = 0
     llm_call_count: int = 0
+    matched_count: int = 0
 
 
 class Pipeline:
@@ -80,6 +81,7 @@ class Pipeline:
             "skipped": 0,
             "gated_out": 0,
             "suppressed": 0,
+            "matched": 0,
             "llm_calls": 0,
         }
         if self.topic_gate is not None:
@@ -120,6 +122,7 @@ class Pipeline:
             skipped_count=self._counts["skipped"],
             gated_out_count=self._counts["gated_out"],
             suppressed_count=self._counts["suppressed"],
+            matched_count=self._counts["matched"],
             llm_call_count=self._counts["llm_calls"],
         )
         return accepted_documents
@@ -186,6 +189,8 @@ class Pipeline:
                     problem_detection_result=detection_result,
                 )
                 self._accepted.append(prepared_document)
+                if detection_result.topic_matches:
+                    self._counts["matched"] += 1
                 continue
             self.repository.save(
                 source_item,
