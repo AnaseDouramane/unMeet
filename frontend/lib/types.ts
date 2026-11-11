@@ -315,3 +315,37 @@ export interface ReportQuote {
 export interface Report extends ReportSummary {
   quotes: ReportQuote[];
 }
+
+export interface OverviewTopic {
+  id: number;
+  name: string;
+  description: string | null;
+  keywords: string[];
+  products: string[];
+  matched: number;
+  new: number;
+}
+
+export interface OverviewRun {
+  source: string;
+  started_at: string;
+  finished_at: string;
+  duration_seconds: number;
+  status: "ok" | "error";
+  acquired: number;
+  skipped: number;
+  gated_out: number;
+  llm_requests: number;
+  problems: number;
+  matched: number;
+  errors: number;
+  error: string | null;
+}
+
+export interface Overview {
+  workspace: { name: string; plan: string; website_url: string | null; product_summary: string | null };
+  inbox: InboxCounts;
+  topics: OverviewTopic[];
+  runs: OverviewRun[];
+  usage: { calls: number; total_tokens: number; spent_usd: number | null; llm_budget_usd: number };
+}

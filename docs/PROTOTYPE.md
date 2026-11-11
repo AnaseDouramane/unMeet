@@ -51,7 +51,9 @@ uvicorn app.api.app:create_app --factory --reload        # terminale 1
 cd frontend && npm install && cp .env.example .env.local && npm run dev   # terminale 2
 ```
 
-Apri http://localhost:3000/inbox, incolla la chiave quando te la chiede.
+Apri http://localhost:3000/overview e incolla la chiave quando te la chiede. La pagina **Overview** mostra cosa ha
+capito del sito, i topic con le frasi cercate, il percorso dell'ultima ricerca (post trovati → letti dall'AI →
+con un bisogno → in inbox), lo stato dell'inbox e le ricerche recenti, con suggerimenti se non trova nulla.
 
 - **Inbox**: per ogni conversazione vedi la citazione esatta, perché corrisponde e il link all'originale.
   Tasti: `j`/`k` muoviti, `r` rilevante, `x` non rilevante, `e` risposto, `u` torna a nuovo, `d` bozza di risposta.

@@ -18,6 +18,7 @@ import type {
   ChannelInfo,
   ChannelInput,
   ConfirmResult,
+  Overview,
   DemoResult,
   Report,
   ReportSummary,
@@ -143,6 +144,7 @@ export const api = {
   // Workspace
   getPlans: () => request<PlanInfo[]>("/api/v1/plans"),
   getWorkspace: () => request<WorkspaceInfo>("/api/v1/workspace"),
+  getOverview: () => request<Overview>("/api/v1/workspace/overview"),
   getMembers: () => request<Member[]>("/api/v1/workspace/members"),
   addMember: (email: string, role: Member["role"]) =>
     request<Member>("/api/v1/workspace/members", undefined, { method: "POST", body: { email, role } }),
