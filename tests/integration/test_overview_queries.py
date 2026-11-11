@@ -23,6 +23,19 @@ def test_runs_round_trip_newest_first(session_factory: sessionmaker[Session]) ->
     assert len(runs.latest(limit=1)) == 1
 
 
+def test_a_workspace_sees_its_own_runs_and_the_shared_ones(
+    session_factory: sessionmaker[Session],
+) -> None:
+    runs = IngestionRunRepository(session_factory)
+    runs.record(IngestionRun("hn", T0, T0, "ok", acquired=1, workspace_id=1))
+    runs.record(IngestionRun("hn", T0, T0, "ok", acquired=2, workspace_id=2))
+    runs.record(IngestionRun("hn", T0, T0, "ok", acquired=3))
+
+    assert sorted(r.acquired for r in runs.latest(workspace_id=1)) == [1, 3]
+    assert runs.latest(workspace_id=1)[0].workspace_id in (1, None)
+    assert sorted(r.acquired for r in runs.latest()) == [1, 2, 3]
+
+
 def test_topic_counts_count_matched_problems_and_the_new_ones(
     session_factory: sessionmaker[Session],
 ) -> None:

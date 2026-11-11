@@ -453,3 +453,5 @@ class IngestionRunModel(Base):
     matched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     errors: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The workspace a run searched for; empty for shared runs (the worker) that serve everyone.
+    workspace_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)

@@ -97,7 +97,7 @@ def workspace_overview(
                 **{k: getattr(run, k) for k in RunOverview.model_fields if k != "duration_seconds"},
                 duration_seconds=round((run.finished_at - run.started_at).total_seconds(), 1),
             )
-            for run in dependencies.runs.latest(10)
+            for run in dependencies.runs.latest(10, principal.workspace_id)
         ],
         usage=UsageOverview(
             calls=sum(t.calls for t in totals),

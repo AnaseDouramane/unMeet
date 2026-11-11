@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.database.models import IngestionRunModel
@@ -30,6 +30,7 @@ class IngestionRun:
     errors: int = 0
     error: str | None = None
     id: int = 0
+    workspace_id: int | None = None
 
     @classmethod
     def from_stats(
@@ -39,10 +40,16 @@ class IngestionRun:
         finished_at: datetime,
         stats: PipelineRunStats | None,
         error: str | None = None,
+        workspace_id: int | None = None,
     ) -> IngestionRun:
         if stats is None:
             return cls(
-                source, started_at, finished_at, "error", error=(error or "no statistics")[:500]
+                source,
+                started_at,
+                finished_at,
+                "error",
+                error=(error or "no statistics")[:500],
+                workspace_id=workspace_id,
             )
         return cls(
             source,
@@ -57,6 +64,7 @@ class IngestionRun:
             matched=stats.matched_count,
             errors=stats.classification_error_count,
             error=error[:500] if error else None,
+            workspace_id=workspace_id,
         )
 
 
@@ -65,7 +73,9 @@ class RunRecorder(Protocol):
 
 
 class RunReader(Protocol):
-    def latest(self, limit: int = 10) -> tuple[IngestionRun, ...]: ...
+    def latest(
+        self, limit: int = 10, workspace_id: int | None = None
+    ) -> tuple[IngestionRun, ...]: ...
 
 
 class IngestionRunRepository:
@@ -87,18 +97,28 @@ class IngestionRunRepository:
                 matched=run.matched,
                 errors=run.errors,
                 error=run.error,
+                workspace_id=run.workspace_id,
             )
             session.add(model)
             session.commit()
             session.refresh(model)
             return _to_run(model)
 
-    def latest(self, limit: int = 10) -> tuple[IngestionRun, ...]:
+    def latest(self, limit: int = 10, workspace_id: int | None = None) -> tuple[IngestionRun, ...]:
+        """Newest runs; with a workspace, only its own runs and the shared ones."""
+        query = select(IngestionRunModel)
+        if workspace_id is not None:
+            query = query.where(
+                or_(
+                    IngestionRunModel.workspace_id == workspace_id,
+                    IngestionRunModel.workspace_id.is_(None),
+                )
+            )
         with self._session_factory() as session:
             models = session.scalars(
-                select(IngestionRunModel)
-                .order_by(IngestionRunModel.started_at.desc(), IngestionRunModel.id.desc())
-                .limit(limit)
+                query.order_by(
+                    IngestionRunModel.started_at.desc(), IngestionRunModel.id.desc()
+                ).limit(limit)
             )
             return tuple(_to_run(m) for m in models)
 
@@ -114,13 +134,17 @@ class InMemoryRunStore:
         self.runs.append(stored)
         return stored
 
-    def latest(self, limit: int = 10) -> tuple[IngestionRun, ...]:
-        return tuple(sorted(self.runs, key=lambda r: (r.started_at, r.id), reverse=True)[:limit])
+    def latest(self, limit: int = 10, workspace_id: int | None = None) -> tuple[IngestionRun, ...]:
+        runs = [
+            r for r in self.runs if workspace_id is None or r.workspace_id in (None, workspace_id)
+        ]
+        return tuple(sorted(runs, key=lambda r: (r.started_at, r.id), reverse=True)[:limit])
 
 
 def _to_run(model: IngestionRunModel) -> IngestionRun:
     return IngestionRun(
         id=model.id,
+        workspace_id=model.workspace_id,
         source=model.source,
         started_at=model.started_at,
         finished_at=model.finished_at,

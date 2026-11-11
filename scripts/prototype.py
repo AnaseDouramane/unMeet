@@ -164,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
                 datetime.now(UTC),
                 stats,
                 failure,
+                workspace_id=workspace.id,
             )
         )
         if stats is not None:
