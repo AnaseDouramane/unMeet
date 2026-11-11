@@ -134,8 +134,27 @@ def main(argv: list[str] | None = None) -> int:
         )
         ingestion = build_ingestion(run_settings)
         print(f"Searching Hacker News (last {args.days} days, up to {args.limit} posts)…")
-        ingestion.pipeline.run(connector=ingestion.connectors[0])
+        from datetime import UTC, datetime
+
+        from app.ingestion.runs import IngestionRun, IngestionRunRepository
+
+        connector = ingestion.connectors[0]
+        started_at, failure = datetime.now(UTC), None
+        try:
+            ingestion.pipeline.run(connector=connector)
+        except Exception as error:  # keep what was saved and show the failure in the app too
+            failure = str(error) or error.__class__.__name__
+            print(f"The search stopped early: {failure}", file=sys.stderr)
         stats = ingestion.pipeline.last_run_stats
+        IngestionRunRepository().record(
+            IngestionRun.from_stats(
+                getattr(connector, "name", "hackernews_topics"),
+                started_at,
+                datetime.now(UTC),
+                stats,
+                failure,
+            )
+        )
         if stats is not None:
             print(
                 f"Fetched {stats.acquired_count}, dropped before the AI {stats.gated_out_count}, "
@@ -148,7 +167,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"API key (shown once, paste it in the app): {key}")
     print("\nNext:")
     print("  API:      uvicorn app.api.app:create_app --factory --reload")
-    print("  App:      cd frontend && npm install && npm run dev  ->  http://localhost:3000/inbox")
+    print(
+        "  App:      cd frontend && npm install && npm run dev  ->  http://localhost:3000/overview"
+    )
     print(f"  Digest:   python -m scripts.concierge digest --workspace {workspace.id} --drafts")
     return 0
 

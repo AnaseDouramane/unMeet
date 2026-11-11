@@ -218,3 +218,12 @@ def test_pipeline_skips_authors_who_asked_to_be_forgotten() -> None:
     assert classifier.single_calls == []
     stats = pipeline.last_run_stats
     assert stats is not None and stats.suppressed_count == 2 and stats.acquired_count == 2
+
+
+def test_stats_count_how_many_items_matched_a_topic() -> None:
+    pipeline, _ = _run(TopicAwareClassifier())
+    stats = pipeline.last_run_stats
+    assert stats is not None and stats.matched_count == 3 and stats.problem_count == 3
+
+    pipeline, _ = _run(PlainClassifier())
+    assert pipeline.last_run_stats is not None and pipeline.last_run_stats.matched_count == 0

@@ -27,6 +27,7 @@ from app.embeddings.embedding_service import EmbeddingService
 from app.errors import DatabaseUnavailableError
 from app.inbox.repository import InboxRepository, InboxStore
 from app.inbox.schemas import InboxItem
+from app.ingestion.runs import IngestionRunRepository, InMemoryRunStore, RunReader
 from app.llm.client import ChatCompletionsClient
 from app.net.safe_fetch import SafeFetcher
 from app.onboarding.service import OnboardingService
@@ -271,6 +272,9 @@ class EmptyInbox:
     def signal_text(self, workspace_id: int, signal_id: int) -> str | None:
         return None
 
+    def topic_counts(self, workspace_id: int) -> dict[int, tuple[int, int]]:
+        return {}
+
     def set_state(
         self, workspace_id, signal_ids, state, note=None, topic_id=None, user_id=None
     ) -> int:
@@ -315,6 +319,7 @@ class ApiDependencies:
     tenancy: TenancyStore = field(default_factory=InMemoryTenancyStore)
     inbox: InboxStore = field(default_factory=EmptyInbox)
     channels: ChannelStore = field(default_factory=InMemoryChannelStore)
+    runs: RunReader = field(default_factory=InMemoryRunStore)
     onboarding: OnboardingService | None = None
     demo: DemoService | None = None
     reply_assistant: ReplyAssistant | None = None
@@ -362,6 +367,7 @@ def build_default_dependencies(settings: Settings) -> ApiDependencies:
         tenancy=TenancyRepository(),
         inbox=InboxRepository(),
         channels=ChannelRepository(),
+        runs=IngestionRunRepository(),
         onboarding=onboarding,
         demo=demo,
         reply_assistant=reply_assistant,

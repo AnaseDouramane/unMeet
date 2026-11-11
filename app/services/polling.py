@@ -14,11 +14,15 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from app.ingestion.base import SourceConnector
 from app.ingestion.cursors import CursorAwareConnector, CursorStore
 from app.services.pipeline import PipelineRunStats
+
+if TYPE_CHECKING:
+    from app.ingestion.runs import RunRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +63,8 @@ class PollingWorker:
         stall_after_seconds: float = 3 * 3600.0,
         clock: Callable[[], float] = time.monotonic,
         jitter: Callable[[float], float] | None = None,
+        recorder: RunRecorder | None = None,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         if not connectors:
             raise ValueError("at least one connector is required")
@@ -73,6 +79,8 @@ class PollingWorker:
         self._clock = clock
         self._jitter = jitter or (lambda interval: interval * random.uniform(0.9, 1.1))
         self._started_at = clock()
+        self._recorder = recorder
+        self._now = now
         self.health: dict[str, SourceHealth] = {
             self._name(connector): SourceHealth() for connector in self._connectors
         }
@@ -93,6 +101,7 @@ class PollingWorker:
         source = self._name(connector)
         health = self.health[source]
         started = self._clock()
+        started_at = self._now()
         if started < health.next_attempt_at:
             return SourcePollResult(source, "backoff", error=health.last_error)
         try:
@@ -112,6 +121,7 @@ class PollingWorker:
                 self.interval_seconds * 2**health.consecutive_failures, self.max_backoff_seconds
             )
             health.next_attempt_at = self._clock() + delay
+            self._record(source, started_at, None, health.last_error)
             logger.error(
                 "poll of %s failed (%d in a row), retrying in %.0fs: %s",
                 source,
@@ -125,6 +135,7 @@ class PollingWorker:
                 error=health.last_error,
                 duration_seconds=self._clock() - started,
             )
+        self._record(source, started_at, stats, None)
         health.consecutive_failures = 0
         health.last_error = None
         health.next_attempt_at = 0.0
@@ -137,6 +148,20 @@ class PollingWorker:
             stats.llm_call_count,
         )
         return SourcePollResult(source, "ok", stats=stats, duration_seconds=self._clock() - started)
+
+    def _record(
+        self, source: str, started_at: datetime, stats: PipelineRunStats | None, error: str | None
+    ) -> None:
+        if self._recorder is None:
+            return
+        from app.ingestion.runs import IngestionRun
+
+        try:
+            self._recorder.record(
+                IngestionRun.from_stats(source, started_at, self._now(), stats, error)
+            )
+        except Exception:  # the history is informative; it must never stop polling
+            logger.exception("could not record the run of %s", source)
 
     def stalled_sources(self) -> list[str]:
         """Sources with no successful poll for ``stall_after_seconds`` (never-polled included)."""

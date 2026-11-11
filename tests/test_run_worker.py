@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from app.ingestion.cursors import InMemoryCursorStore
+from app.ingestion.runs import InMemoryRunStore
 from scripts import run_worker
 
 
@@ -48,10 +49,13 @@ def test_clean_stop_returns_zero_and_wires_the_cursor_store(monkeypatch) -> None
     )
     monkeypatch.setattr(run_worker, "PollingWorker", FakeWorker)
     monkeypatch.setattr(run_worker, "SourceCursorRepository", InMemoryCursorStore)
+    monkeypatch.setattr(run_worker, "IngestionRunRepository", InMemoryRunStore)
     monkeypatch.setattr(run_worker.signal, "signal", lambda *args: None)
 
     assert run_worker.main() == 0
     assert isinstance(seen["store"], InMemoryCursorStore)
+    recorder = seen["kwargs"].pop("recorder")
+    assert isinstance(recorder, InMemoryRunStore)
     assert seen["kwargs"] == {
         "interval_seconds": 60,
         "max_backoff_seconds": 600,

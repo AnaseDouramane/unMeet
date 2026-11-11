@@ -432,3 +432,24 @@ class DeliveryChannelModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class IngestionRunModel(Base):
+    """One pass of a source through the pipeline: what was fetched, filtered, judged, matched."""
+
+    __tablename__ = "ingestion_runs"
+    __table_args__ = (Index("ix_ingestion_runs_started_at", "started_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(80), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    acquired: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    gated_out: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    llm_requests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    problems: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    matched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    errors: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)

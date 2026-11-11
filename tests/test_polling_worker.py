@@ -269,3 +269,53 @@ def test_worker_commits_cursors_after_success_and_not_after_failure() -> None:
     pipeline.fail = False
     assert worker.poll_once()[0].status == "ok"
     assert store.get("reddit:sales") == "200.0"
+
+
+def test_every_poll_is_recorded_with_its_numbers_or_its_error() -> None:
+    from datetime import UTC, datetime
+
+    from app.ingestion.runs import InMemoryRunStore
+
+    store = InMemoryRunStore()
+    pipeline = FakePipeline({"reddit": [RuntimeError("429 Too Many Requests")]})
+    worker = PollingWorker(
+        pipeline,
+        [Source("hackernews"), Source("reddit")],
+        InMemoryCursorStore(),
+        interval_seconds=100,
+        clock=Clock(),
+        jitter=lambda i: i,
+        recorder=store,
+        now=lambda: datetime(2026, 11, 11, 9, 0, tzinfo=UTC),
+    )
+    worker.poll_once()
+
+    ok, failed = sorted(store.latest(), key=lambda r: r.source)
+    assert (ok.source, ok.status, ok.acquired, ok.gated_out, ok.problems) == (
+        "hackernews",
+        "ok",
+        3,
+        1,
+        1,
+    )
+    assert (failed.source, failed.status, failed.error) == (
+        "reddit",
+        "error",
+        "429 Too Many Requests",
+    )
+
+
+def test_a_broken_recorder_never_stops_polling(caplog) -> None:
+    class Broken:
+        def record(self, run):
+            raise RuntimeError("database down")
+
+    worker = PollingWorker(
+        FakePipeline(),
+        [Source("hackernews")],
+        InMemoryCursorStore(),
+        clock=Clock(),
+        recorder=Broken(),
+    )
+    assert worker.poll_once()[0].status == "ok"
+    assert "could not record" in caplog.text

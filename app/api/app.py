@@ -24,6 +24,7 @@ from app.api.routes import (
     inbox,
     onboarding,
     opportunities,
+    overview,
     privacy,
     reports,
     search,
@@ -88,6 +89,7 @@ def create_app(
     app.include_router(usage.router)
     app.include_router(privacy.router)
     app.include_router(workspaces.router)
+    app.include_router(overview.router)
     app.include_router(inbox.router)
     app.include_router(onboarding.router)
     app.include_router(channels.router)
