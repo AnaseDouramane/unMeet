@@ -39,9 +39,10 @@ La prima esecuzione scarica il piccolo modello di embedding (circa 90 MB): è no
 python -m scripts.prototype --owner tuaemail@esempio.com --site https://iltuo-prodotto.com
 ```
 
-Fa questo, in ordine: aggiorna il database, crea il workspace "Prototype" con una **chiave API** (te la mostra una
+Fa questo, in ordine: aggiorna il database, crea un workspace per quel sito (es. "Prototype – posthog.com") con una **chiave API** (te la mostra una
 sola volta, copiala), legge il tuo sito e propone 3–5 topic con le frasi da cercare, cerca su Hacker News gli
-ultimi 90 giorni e valuta cosa trova. Senza `--site` usa 4 topic di esempio. Puoi rilanciarlo: riusa quello che c'è.
+ultimi 90 giorni e valuta cosa trova. Senza `--site` usa 4 topic di esempio. Ogni sito ha il suo workspace, quindi i topic di siti diversi non si
+mescolano; rilanciandolo sullo stesso sito riusa quello che c'è.
 Ci vogliono alcuni minuti (la prima volta anche il download del modello).
 
 ## 3. Guardare il risultato

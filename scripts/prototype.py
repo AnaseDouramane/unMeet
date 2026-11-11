@@ -25,6 +25,16 @@ from app.topics.schemas import TopicDefinition
 WORKSPACE_NAME = "Prototype"
 
 
+def workspace_name(site: str | None) -> str:
+    """One workspace per site, so topics of different products never mix."""
+    if not site:
+        return f"{WORKSPACE_NAME} (examples)"
+    from urllib.parse import urlparse
+
+    host = (urlparse(site.strip()).hostname or site.strip()).lower().removeprefix("www.")
+    return f"{WORKSPACE_NAME} – {host}"[:120]
+
+
 def _migrate() -> None:
     """Bring the schema up to date, adopting databases created by older versions (init_db)."""
     from sqlalchemy.exc import ProgrammingError
@@ -89,9 +99,10 @@ def main(argv: list[str] | None = None) -> int:
     _migrate()
     tenancy, topics = TenancyRepository(), TopicRepository()
     owner = tenancy.get_or_create_user(args.owner)
+    name = workspace_name(args.site)
     workspace = next(
-        (w for w, _ in tenancy.workspaces_for_user(owner.id) if w.name == WORKSPACE_NAME), None
-    ) or tenancy.create_workspace(WORKSPACE_NAME, args.owner)
+        (w for w, _ in tenancy.workspaces_for_user(owner.id) if w.name == name), None
+    ) or tenancy.create_workspace(name, args.owner)
     if workspace.plan != "team":
         workspace = tenancy.set_plan(workspace.id, "team")
 
