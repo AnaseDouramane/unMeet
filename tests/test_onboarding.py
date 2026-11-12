@@ -186,3 +186,6 @@ def test_the_prompt_asks_for_real_wording_not_marketing_terms() -> None:
     OnboardingService(client, fetcher).analyze("https://acme.test")
     system = " ".join(client.calls[0]["messages"][0]["content"].split())
     assert '"keywords"' in system and "literally type" in system and "no marketing terms" in system
+    # Searched as exact phrases: the prompt asks for short wording people use, not descriptions.
+    assert "2 to 4 words" in system and "alternative to <competitor>" in system
+    assert "Never describe the problem in your own words" in system
