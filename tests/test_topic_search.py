@@ -43,7 +43,7 @@ def hit(object_id, created, text):
     }
 
 
-def test_phrases_come_from_keywords_first_then_products_without_duplicates() -> None:
+def test_phrases_are_keywords_then_alternatives_to_products_then_products() -> None:
     topics = [
         topic(1, keywords=("Looking for a tool", "alternative to x"), products=("HubSpot", "X")),
         topic(2, keywords=("looking for a tool",), products=("hubspot", "Pipedrive")),
@@ -51,6 +51,11 @@ def test_phrases_come_from_keywords_first_then_products_without_duplicates() -> 
     assert phrases_for(topics) == (
         "Looking for a tool",
         "alternative to x",
+        "HubSpot alternative",
+        "alternative to HubSpot",
+        "X alternative",
+        "Pipedrive alternative",
+        "alternative to Pipedrive",
         "HubSpot",
         "X",
         "Pipedrive",

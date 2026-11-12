@@ -41,9 +41,12 @@ Answer with one JSON object:
         would describe the problem or request (no marketing language),
      "intents": subset of ["pain_point","feature_request","solution_search","competitor_complaint"],
      "products": competitor or tool names a post about this topic would mention; [] if none,
-     "keywords": 3 to 6 short phrases (2 to 5 words, lowercase) that a person with this need would
-        literally type in a post or comment, for example "looking for a tool to find leads" or
-        "alternative to hubspot". Real wording only, no marketing terms, no quotes}
+     "keywords": 3 to 6 short phrases (2 to 4 words, lowercase) that a person with this need would
+        literally type in a post or comment. They are searched as exact phrases, so a long or
+        descriptive phrase finds nothing: prefer the words people really use, such as the category
+        name ("privacy friendly analytics", "self hosted crm"), "alternative to <competitor>",
+        "switched from <competitor>", "looking for a tool". Never describe the problem in your own
+        words (bad: "crm data too messy to use"). Real wording only, no marketing terms, no quotes}
 }
 Topics should cover: the pain the product solves, people asking for a tool in the category, and
 complaints about the main competitors."""

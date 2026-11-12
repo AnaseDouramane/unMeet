@@ -16,14 +16,30 @@ MAX_PHRASES = 40
 
 
 def phrases_for(topics: Sequence[Topic]) -> tuple[str, ...]:
-    """Distinct exact phrases, keywords first, then product names, capped."""
+    """Distinct exact phrases, capped: keywords, then "<product> alternative" and
+    "alternative to <product>", then the bare product names.
+
+    The alternative phrases are how people ask for a replacement, and they are found far more
+    often than descriptive phrases: on Hacker News over a year, "google analytics alternative"
+    returned 10 posts and "alternative to google analytics" 8, while a phrase like "google
+    analytics too complicated" returned none.
+    """
     seen: dict[str, str] = {}
+
+    def add(phrase: str) -> None:
+        phrase = phrase.strip()
+        if phrase:
+            seen.setdefault(phrase.lower(), phrase)
+
     for topic in topics:
         for phrase in topic.keywords:
-            seen.setdefault(phrase.strip().lower(), phrase.strip())
-    for topic in topics:
-        for product in topic.products:
-            seen.setdefault(product.strip().lower(), product.strip())
+            add(phrase)
+    products = [p.strip() for topic in topics for p in topic.products if p.strip()]
+    for product in products:
+        add(f"{product} alternative")
+        add(f"alternative to {product}")
+    for product in products:
+        add(product)
     return tuple(seen.values())[:MAX_PHRASES]
 
 
