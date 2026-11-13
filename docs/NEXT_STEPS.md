@@ -130,6 +130,53 @@ rising. Good for content marketing and upsell, not the core loop.
 4. Rate limiting on the public API, API keys per workspace (replace the single global key),
    audit log for writes.
 
+### M5 — Discovery mode: find unmet consumer demand (separate track)
+
+Goal: reuse the same engine to answer "what are people asking for that no product serves
+well?" — starting with consumer apps. This is a second mode of the engine, not a fork: it must
+not change the behaviour of GTM workspaces.
+
+1. **Discovery profile, selected by configuration.**
+   - A `DISCOVERY` profile (or a workspace flag) that bypasses the topic gate and instead
+     keeps only items with intent `solution_search` or `feature_request`, using a cheap
+     pre-filter first (phrases such as "is there an app", "I wish there was", "why can't my
+     iPhone", "app idea", "someone should make", "looking for an app") before any LLM call.
+   - Consumer sources via config: r/iphone, r/apple, r/ios, r/androidapps, r/AppIdeas,
+     r/SomebodyMakeThis, r/productivity, r/ADHD, r/personalfinance, r/travel, Ask HN.
+     Re-check each subreddit's rules and the Reddit Data API terms for this use.
+2. **Consumer variant of the classifier prompt.** Today `SYSTEM_PROMPT` in
+   `app/problem_detection/llm.py` is written for go-to-market teams. Add a consumer variant
+   selected by the profile, which also extracts: `requested_capability` (one sentence, what
+   the person wants to be able to do), `platform` (ios / android / web / desktop / any) and
+   `workaround` (what they do today, verbatim when present). Keep the verbatim-quote rule and
+   strict validation; add a migration for the new fields.
+3. **Coverage check ("does it already exist?").** `app/market` was removed; build it again as
+   `app/coverage` with a provider interface:
+   - App Store via the public iTunes Search API (`/search?entity=software`): name, rating,
+     rating count, last update, price.
+   - Google Play (only through an allowed API or a licensed data provider; no scraping).
+   - Product Hunt API and GitHub search for existing tools/repos.
+   For each cluster, generate 3–5 search queries from its `requested_capability` statements,
+   collect candidates, and let the LLM judge whether each candidate actually provides the
+   capability (with a one-line reason). Classify the cluster as:
+   - `unserved`: no matching product;
+   - `poorly_served`: matches exist but are weak (for example rating < 4.0, < 100 ratings,
+     not updated for 12+ months, or platform missing);
+   - `served`: a strong product exists (store the evidence).
+   Cache results per query with a TTL; record cost in the usage tracker.
+4. **Opportunity score for discovery clusters:** demand (distinct authors, growth across runs),
+   urgency (severity, workaround pain), coverage gap (`unserved` > `poorly_served` > `served`),
+   platform fit. Make the weights explicit and test them.
+5. **Output:** an "Opportunities" view and `GET /api/v1/discovery/opportunities` listing each
+   cluster with its problem statement, 3 verbatim quotes with links, request count and trend,
+   coverage verdict with the competitors found and why they fall short. Add a CSV export.
+6. **Evaluation:** label 100 clusters by hand as served / poorly served / unserved; report
+   agreement of the coverage check with intervals. A false "unserved" costs weeks of building
+   the wrong thing, so optimise precision on `unserved`.
+7. **Dogfooding deliverable:** run discovery for two weeks on consumer sources and produce a
+   short report of the top 10 opportunities with evidence. This feeds the choice of a B2C side
+   project and is a portfolio story in itself.
+
 ## 5. Remove or demote
 - Streamlit placeholder dashboard: delete.
 - `app/market` experimental connectors: delete unless M3 needs them.
